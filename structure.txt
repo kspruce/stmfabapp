@@ -1,0 +1,109 @@
+├── __pycache__
+├── file_structure.py
+├── output
+│   ├── 20240414 PH3DOSE_dose_plot1.png
+│   ├── 20240419_OUTGAS_degas_plot1.png
+│   ├── 20240423 Flash_flash_plot1.png
+│   ├── 20240423 Flash_flash_plot2.png
+│   ├── 20240423 Flash_flash_plot3.png
+│   ├── 20240423 HTERMINATE_hterm_plot1.png
+│   ├── 20240423 HTERMINATE_hterm_plot2.png
+│   ├── 20240424 OVergrowth_overgrowth_plot1.png
+│   ├── 20240424 OVergrowth_overgrowth_plot2.png
+│   ├── 20240424 OVergrowth_overgrowth_plot3.png
+│   ├── 20240424 OVergrowth_overgrowth_plot4.png
+│   ├── 20240425 AsH3 Dose_dose_plot1.png
+│   ├── QD_001_fabrication_record_20251030_172103.html
+│   └── Tube Stop_fabrication_record_20251029_140201.html
+├── overgrowthmetric.txt
+├── pyproject.toml
+├── requirements.txt
+├── scripts
+│   └── hook-pySPM.py
+├── stm_fab
+│   ├── __pycache__
+│   │   └── thermal_budget.cpython-311.pyc
+│   ├── analysis
+│   │   ├── __pycache__
+│   │   │   ├── batch_metrics.cpython-311.pyc
+│   │   │   ├── batch_rampdown.cpython-311.pyc
+│   │   │   ├── cooldown_analysis.cpython-311.pyc
+│   │   │   ├── html_report.cpython-311.pyc
+│   │   │   ├── labview_analysis.cpython-311.pyc
+│   │   │   ├── process_metrics.cpython-311.pyc
+│   │   │   ├── resistance_fit.cpython-311.pyc
+│   │   │   └── susi_calibration.cpython-311.pyc
+│   │   ├── batch_metrics.py
+│   │   ├── batch_rampdown.py
+│   │   ├── cooldown_analysis.py
+│   │   ├── html_report.py
+│   │   ├── init.py
+│   │   ├── labview_analysis.py
+│   │   ├── process_metrics.py
+│   │   ├── resistance_fit.py
+│   │   ├── susi_calibration.py
+│   │   └── ti_fitter.py
+│   ├── db
+│   │   ├── __pycache__
+│   │   │   ├── models.cpython-311.pyc
+│   │   │   ├── numpy_fix.cpython-311.pyc
+│   │   │   └── operations.cpython-311.pyc
+│   │   ├── init.py
+│   │   ├── models.py
+│   │   ├── numpy_fix.py
+│   │   └── operations.py
+│   ├── gui
+│   │   ├── __pycache__
+│   │   │   ├── app.cpython-311.pyc
+│   │   │   ├── cooldown_comparison_tab.cpython-311.pyc
+│   │   │   ├── cooldown_tab.cpython-311.pyc
+│   │   │   ├── device_management.cpython-311.pyc
+│   │   │   └── labview_analysis_tab.cpython-311.pyc
+│   │   ├── app.py
+│   │   ├── appWIP.py
+│   │   ├── cooldown_comparison_tab.py
+│   │   ├── cooldown_tab.py
+│   │   ├── device_management.py
+│   │   ├── init.py
+│   │   ├── labview_analysis_tab - Copy.py
+│   │   ├── labview_analysis_tab.py
+│   │   └── stm_fab_records.db
+│   ├── init.py
+│   ├── labview
+│   │   ├── __pycache__
+│   │   │   ├── bulk_import.cpython-311.pyc
+│   │   │   ├── labview_parser.cpython-311.pyc
+│   │   │   └── process_summarizer.cpython-311.pyc
+│   │   ├── bulk_import.py
+│   │   ├── init.py
+│   │   ├── labview_parser.py
+│   │   └── process_summarizer.py
+│   ├── quality
+│   │   ├── __pycache__
+│   │   │   └── quality_checks.cpython-311.pyc
+│   │   ├── init.py
+│   │   └── quality_checks.py
+│   ├── reports
+│   │   ├── __pycache__
+│   │   │   └── fabrication_record.cpython-311.pyc
+│   │   ├── fabrication_record.py
+│   │   └── init.py
+│   ├── resources
+│   │   ├── Gwyddionnet.pymap
+│   │   ├── Icon.ico
+│   │   └── init.py
+│   ├── scripts
+│   │   ├── batch_process.py
+│   │   ├── init.py
+│   │   ├── labview_graph.py
+│   │   └── labview_graph_cli.py
+│   └── thermal_budget.py
+├── stm_fab.egg-info
+│   ├── PKG-INFO
+│   ├── SOURCES.txt
+│   ├── dependency_links.txt
+│   ├── entry_points.txt
+│   ├── requires.txt
+│   └── top_level.txt
+├── stm_fab_records.db
+└── structure.txt

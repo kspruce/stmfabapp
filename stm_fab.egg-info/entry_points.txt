@@ -1,0 +1,2 @@
+[console_scripts]
+stm-fab-gui = stm_fab.gui.app:main

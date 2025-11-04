@@ -1,0 +1,42 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "stm-fab"
+version = "0.1.0"
+description = "STM Fabrication tools (GUI + LabVIEW analysis)"
+# If you don't have README.md yet, comment the next line out or add the file.
+# readme = { file = "README.md", content-type = "text/markdown" }
+requires-python = ">=3.10"
+dependencies = [
+  "numpy",
+  "pandas",
+  "matplotlib",
+  "scipy",
+  "openpyxl",
+  "customtkinter",
+  "pySPM"
+]
+
+[project.scripts]
+# Point this to your actual GUI entry. If you have restructured into stm_fab/gui/app.py:
+stm-fab-gui = "stm_fab.gui.app:main"
+# If you have not fully restructured yet and your GUI main is still at root:
+# stm-fab-gui = "stm_fab_gui_enhanced:main"
+
+# Optional CLIs if you created them:
+# stm-batch-rampdown = "stm_fab.scripts.batch_process:main"
+# stm-labview-graph = "stm_fab.scripts.labview_graph_cli:main"
+
+[tool.setuptools]
+include-package-data = true
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["stm_fab*"]
+exclude = ["output*", "tests*", "build*", "dist*"]
+
+# Include resource files that live inside the package
+[tool.setuptools.package-data]
+"stm_fab.resources" = ["*.ico", "*.pymap"]

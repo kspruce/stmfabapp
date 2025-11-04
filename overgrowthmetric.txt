@@ -1,0 +1,39 @@
+================================================================================
+FILE: 20240424 OVergrowth.txt
+TYPE: SUSI
+================================================================================
+
+SUSI OPERATION
+--------------------------------------------------------------------------------
+  Operating Threshold:   0.1632 A
+  Total Operating Time:  17.0 seconds
+  Mean Current:          0.2044 A
+  Peak Current:          0.2110 A
+  Segments:              1
+
+OVERGROWTH PHASE BREAKDOWN
+--------------------------------------------------------------------------------
+  Current Quantiles:
+    Q33 (RT/RTA boundary): 0.0370 A
+    Q66 (RTA/LTE boundary): 0.0370 A
+
+  RT GROWTH:
+    Duration:            2042.0 seconds
+    Start:               0.0 s
+    End:                 0.0 s
+    Median Current:      0.0000 A
+
+  RTA ANNEAL:
+    Duration:            17.0 seconds
+    Start:               0.0 s
+    End:                 0.0 s
+    Median Current:      0.2040 A
+
+  LTE GROWTH:
+    Duration:            5095.5 seconds
+    Start:               0.0 s
+    End:                 0.0 s
+    Median Current:      0.0370 A
+
+
+================================================================================
