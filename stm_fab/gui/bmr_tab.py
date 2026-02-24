@@ -36,7 +36,7 @@ class TableEditor(ctk.CTkFrame):
         header_font=("Helvetica", 12, "bold"),
         header_bg="#334155",
         header_fg="#FFFFFF",
-        select_bg="#1f6aa5",
+        select_bg=("#3B5F8A", "#3B5F8A"),
     ):
         super().__init__(master)
         self.columns = columns  # list of dicts: {key,label,type}
@@ -61,15 +61,15 @@ class TableEditor(ctk.CTkFrame):
         self.style.configure(
             "BMR.Treeview",
             rowheight=row_height,
-            background="white",
-            fieldbackground="white",
+            background=("#111827", "#E5E7EB"),
+            fieldbackground=("#111827", "#E5E7EB"),
             foreground="black",
         )
         # Selected row color
         self.style.map(
             "BMR.Treeview",
             background=[("selected", select_bg)],
-            foreground=[("selected", "white")],
+            foreground=[("selected", ("#111827", "#E5E7EB"))],
         )
         # Heading style (bold, contrasting)
         self.style.configure(
@@ -693,7 +693,7 @@ class BMRTab:
         self.start_time_label.pack(pady=5)
         
         # Separator
-        ctk.CTkFrame(scroll_container, height=2, fg_color="gray").pack(fill="x", padx=10, pady=15)
+        ctk.CTkFrame(scroll_container, height=2, fg_color="#6B7280", "#9CA3AF").pack(fill="x", padx=10, pady=15)
         
         # BMR Actions Section
         ctk.CTkLabel(
@@ -707,8 +707,8 @@ class BMRTab:
             scroll_container,
             text="🆕 New BMR (SET Process)",
             command=self.initialize_set_bmr,
-            fg_color="#2fa572",
-            hover_color="#1d6e4a",
+            fg_color=("#2F6F56", "#2F6F56"),
+            hover_color=("#275746", "#275746"),
             height=40
         ).pack(padx=10, pady=5, fill="x")
         
@@ -733,8 +733,8 @@ class BMRTab:
             scroll_container,
             text="📋 Import ALL Steps",
             command=self.bulk_import_from_json,
-            fg_color="#d4af37",
-            hover_color="#9d7f23",
+            fg_color=("#7A5B2E", "#7A5B2E"),
+            hover_color=("#624822", "#624822"),
             height=35
         ).pack(padx=10, pady=5, fill="x")      
         
@@ -743,13 +743,13 @@ class BMRTab:
             scroll_container,
             text="📄 Export to PDF",
             command=self.export_bmr_pdf,
-            fg_color="#d4af37",
-            hover_color="#9d7f23",
+            fg_color=("#7A5B2E", "#7A5B2E"),
+            hover_color=("#624822", "#624822"),
             height=35
         ).pack(padx=10, pady=5, fill="x")
         
         # Separator for Templates
-        ctk.CTkFrame(scroll_container, height=2, fg_color="gray").pack(fill="x", padx=10, pady=15)
+        ctk.CTkFrame(scroll_container, height=2, fg_color="#6B7280", "#9CA3AF").pack(fill="x", padx=10, pady=15)
         
         # Template Actions Section
         ctk.CTkLabel(
@@ -791,7 +791,7 @@ class BMRTab:
         ).pack(padx=10, pady=5, fill="x")
                 
         # Separator for Database Management
-        ctk.CTkFrame(scroll_container, height=2, fg_color="gray").pack(fill="x", padx=10, pady=15)
+        ctk.CTkFrame(scroll_container, height=2, fg_color="#6B7280", "#9CA3AF").pack(fill="x", padx=10, pady=15)
         
         # Database Management Section
         ctk.CTkLabel(
@@ -805,8 +805,8 @@ class BMRTab:
             scroll_container,
             text="📥 Import BMR from JSON",
             command=self.import_bmr_from_json_dialog,
-            fg_color="#1e88e5",
-            hover_color="#1565c0",
+            fg_color=("#3B5F8A", "#3B5F8A"),
+            hover_color=("#314F72", "#314F72"),
             height=35
         ).pack(padx=10, pady=5, fill="x")
         
@@ -815,13 +815,13 @@ class BMRTab:
             scroll_container,
             text="🗑️ Delete Device BMR",
             command=self.delete_device_bmr_dialog,
-            fg_color="#e53935",
-            hover_color="#c62828",
+            fg_color=("#A94444", "#A94444"),
+            hover_color=("#893A3A", "#893A3A"),
             height=35
         ).pack(padx=10, pady=5, fill="x")
                 
         # Separator
-        ctk.CTkFrame(scroll_container, height=2, fg_color="gray").pack(fill="x", padx=10, pady=15)
+        ctk.CTkFrame(scroll_container, height=2, fg_color="#6B7280", "#9CA3AF").pack(fill="x", padx=10, pady=15)
         
         # Quality status
         self.quality_status_frame = ctk.CTkFrame(scroll_container)
@@ -882,8 +882,8 @@ class BMRTab:
             nav_frame,
             text="✓ Complete Step",
             command=self.complete_current_step,
-            fg_color="#2fa572",
-            hover_color="#1d6e4a",
+            fg_color=("#2F6F56", "#2F6F56"),
+            hover_color=("#275746", "#275746"),
             width=150,
             state="disabled"
         )
@@ -926,7 +926,7 @@ class BMRTab:
         self.progress_bar.set(0)
         
         # Separator
-        ctk.CTkFrame(scroll_container, height=2, fg_color="gray").pack(fill="x", padx=10, pady=10)
+        ctk.CTkFrame(scroll_container, height=2, fg_color="#6B7280", "#9CA3AF").pack(fill="x", padx=10, pady=10)
         
         # Steps list
         ctk.CTkLabel(
@@ -1010,7 +1010,7 @@ class BMRTab:
                 dialog,
                 text="Devices with existing BMRs are marked with 📋",
                 font=ctk.CTkFont(size=10),
-                text_color="gray"
+                text_color="#6B7280", "#9CA3AF"
             )
             info_label.pack(pady=5)
             
@@ -1033,7 +1033,7 @@ class BMRTab:
                     .filter_by(device_id=device.device_id).count()
                 
                 bmr_indicator = " 📋" if bmr_count > 0 else ""
-                status_color = "#2fa572" if bmr_count > 0 else None
+                status_color = ("#2F6F56", "#2F6F56") if bmr_count > 0 else None
                 
                 device_btn = ctk.CTkButton(
                     scroll_frame,
@@ -1527,7 +1527,7 @@ class BMRTab:
                 progress = bmr.calculate_completion()
                 status_color = {
                     'in_progress': "#3b82f6",
-                    'completed': "#2fa572",
+                    'completed': ("#2F6F56", "#2F6F56"),
                     'failed': "#dc2626",
                     'on_hold': "#f59e0b"
                 }.get(bmr.status, None)
@@ -1829,7 +1829,7 @@ class BMRTab:
             text="📊 Import This Step",
             command=self.import_from_json_analysis,
             width=180,
-            fg_color="#1f6aa5",
+            fg_color=("#3B5F8A", "#3B5F8A"),
             hover_color="#144870"
         ).pack(side="left", padx=5)
 
@@ -1838,8 +1838,8 @@ class BMRTab:
             text="📋 Import ALL Steps",
             command=self.bulk_import_from_json,
             width=180,
-            fg_color="#2fa572",
-            hover_color="#1d6e4a"
+            fg_color=("#2F6F56", "#2F6F56"),
+            hover_color=("#275746", "#275746")
         ).pack(side="left", padx=5)
         
         # Notes section
@@ -2078,16 +2078,16 @@ class BMRTab:
         # Rebuild steps list
         for idx, step in enumerate(self.bmr_steps):
             if step.status == StepStatus.COMPLETED:
-                fg_color = "#2fa572"
+                fg_color = ("#2F6F56", "#2F6F56")
                 status_indicator = "✓ "
             elif step.status == StepStatus.IN_PROGRESS:
-                fg_color = "#d4af37"
+                fg_color = ("#7A5B2E", "#7A5B2E")
                 status_indicator = "⚠ "
             elif step.status == StepStatus.FAILED:
                 fg_color = "#c9302c"
                 status_indicator = "✗ "
             else:
-                fg_color = "#5a5a5a"
+                fg_color = ("#4B5563", "#374151")
                 status_indicator = ""
             
             btn = ctk.CTkButton(
@@ -2469,7 +2469,7 @@ class BMRTab:
                 ctk.CTkButton(row, text="Edit…",  width=80, command=lambda path=p: self._edit_template_dialog(path)).pack(side="left", padx=4)
                 ctk.CTkButton(row, text="Rename", width=80, command=lambda path=p: self._rename_template(path, refresh)).pack(side="left", padx=4)
                 ctk.CTkButton(row, text="Duplicate", width=90, command=lambda path=p: self._duplicate_template(path, refresh)).pack(side="left", padx=4)
-                ctk.CTkButton(row, text="Delete", width=80, fg_color="#B71C1C", hover_color="#7F0000",
+                ctk.CTkButton(row, text="Delete", width=80, ("#A94444", "#A94444"), hover_color=("#893A3A", "#893A3A"),
                               command=lambda path=p: self._delete_template(path, refresh)).pack(side="left", padx=4)
 
         refresh()
@@ -2563,7 +2563,7 @@ class BMRTab:
                 widgets['name'].insert(0, step_data.get('step_name', ''))
             
             # Remove button
-            ctk.CTkButton(header_frame, text="✕", width=30, fg_color="red",
+            ctk.CTkButton(header_frame, text="✕", width=30, fg_color=("#A94444", "#A94444"),
                          command=lambda: remove_step(step_frame, widgets)).pack(side="right", padx=5)
             
             # Parameters section
@@ -2732,7 +2732,7 @@ class BMRTab:
         
         ctk.CTkButton(btn_frame, text="💾 Save Template", 
                      command=save_template,
-                     fg_color="#2fa572", hover_color="#1d6e4a",
+                     fg_color=("#2F6F56", "#2F6F56"), hover_color=("#275746", "#275746"),
                      width=140).pack(side="right", padx=5)
         
         ctk.CTkButton(btn_frame, text="Cancel", 
@@ -2846,8 +2846,8 @@ class BMRTab:
                 btn_frame,
                 text="🗑️ Delete Selected",
                 command=delete_selected,
-                fg_color="#e53935",
-                hover_color="#c62828",
+                fg_color=("#A94444", "#A94444"),
+                hover_color=("#893A3A", "#893A3A"),
                 width=150
             ).pack(side="left", padx=5)
             
