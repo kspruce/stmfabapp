@@ -7,6 +7,10 @@ import os
 import webbrowser
 from datetime import datetime
 import threading
+import warnings
+
+# Suppress tkinter threading warnings (harmless cleanup warnings)
+warnings.filterwarnings('ignore', message='.*main thread is not in main loop.*')
 
 from stm_fab.analysis.labview_analysis import (
     load_labview_df, plot_flash, plot_termination, plot_susi, plot_dose, plot_outgas,
@@ -21,6 +25,7 @@ from stm_fab.analysis.process_metrics import analyze_process_file
 from stm_fab.analysis.batch_metrics import analyze_folder_metrics, format_batch_results, export_batch_results_excel
 from stm_fab.analysis.susi_calibration import SUSICalibrationManager
 from stm_fab.analysis.html_report import build_device_report
+from stm_fab.scripts.convert_autoheater_to_flash_format import convert_file as convert_autoflash
 
 PROCESS_DETECT_RULES = [
     ('Flash', lambda s: any(k in s for k in ['flash','cooldown'])),
@@ -107,10 +112,6 @@ class LabVIEWAnalysisTab:
                      command=self._analyze_folder_metrics,
                      fg_color="#D32F2F", hover_color="#B71C1C",
                      width=200, height=35).pack(side="left", padx=5)
-        ctk.CTkButton(analysis_frame, text="🌡️ Analyze Cooldown", 
-                     command=self._analyze_cooldown,
-                     fg_color="#7B1FA2", hover_color="#4A148C",
-                     width=160, height=35).pack(side="left", padx=5)
  
         # ========== OPTIONS & CALIBRATION ==========
         options_frame = ctk.CTkFrame(main)
@@ -176,8 +177,7 @@ class LabVIEWAnalysisTab:
 
         self._plot_canvases = []
         
-        # ========== BATCH RAMPDOWN SECTION ==========
-        self._add_batch_rampdown_panel(main)
+
         
     def _browse(self):
         folder = filedialog.askdirectory(title="Select LabVIEW Data Folder")
@@ -257,22 +257,55 @@ class LabVIEWAnalysisTab:
 
 
     def _scan(self):
+        """Scan folder for .txt files, auto-convert autoflash files, and display all files."""
         for w in self.file_list.winfo_children(): 
             w.destroy()
+        
         folder = self.folder_var.get().strip()
         if not folder:
             messagebox.showwarning("No Folder", "Please select a folder first")
             return
-        files = [p for p in Path(folder).glob("*.txt")]
-        if not files:
+        
+        folder_path = Path(folder)
+        
+        # Find all .txt files
+        all_txt_files = list(folder_path.glob("*.txt"))
+        
+        if not all_txt_files:
             messagebox.showinfo("No Files", "No .txt files found")
+            return
+        
+        # ⭐ NEW: Check for autoflash files and convert them
+        autoflash_files = [f for f in all_txt_files if 'auto' in f.name.lower()]
+        
+        if autoflash_files:
+            conversion_results = self._convert_autoflash_files(autoflash_files)
+            
+            # Show summary of conversions
+            if conversion_results['success']:
+                msg = f"✓ Converted {conversion_results['success']} autoflash file(s)\n\n"
+                for old, new in conversion_results['conversions']:
+                    msg += f"  {old.name} → {new.name}\n"
+                messagebox.showinfo("Auto-Flash Conversion", msg)
+            
+            if conversion_results['errors']:
+                err_msg = f"⚠ Failed to convert {len(conversion_results['errors'])} file(s):\n\n"
+                for f, err in conversion_results['errors']:
+                    err_msg += f"  {f.name}: {err}\n"
+                messagebox.showwarning("Conversion Errors", err_msg)
+        
+        # ⭐ Rescan folder to get all files (including newly converted ones)
+        files = [p for p in folder_path.glob("*.txt")]
+        
+        if not files:
+            messagebox.showinfo("No Files", "No .txt files found after conversion")
             return
         
         self._files = files
         self.file_count_label.configure(text=f"({len(files)})")
         
+        # Display all files with color coding
         for p in files:
-            # Color code by type
             file_type = detect_analysis_type(p.name)
             colors = {
                 'Flash': '#D32F2F',
@@ -283,14 +316,60 @@ class LabVIEWAnalysisTab:
             }
             color = colors.get(file_type, '#616161')
             
-            btn = ctk.CTkButton(self.file_list, 
-                               text=f"{file_type[:1]} {p.name[:35]}...",
-                               command=lambda path=p: self._plot_file(path), 
-                               anchor="w",
-                               fg_color=color,
-                               hover_color=color,
-                               height=32)
+            btn = ctk.CTkButton(
+                self.file_list, 
+                text=f"{file_type[:1]} {p.name[:35]}...",
+                command=lambda path=p: self._plot_file(path), 
+                anchor="w",
+                fg_color=color,
+                hover_color=color,
+                height=32
+            )
             btn.pack(fill="x", pady=2, padx=3)
+
+    def _convert_autoflash_files(self, autoflash_files):
+        """
+        Convert autoflash files to standard format and rename them.
+        
+        Args:
+            autoflash_files: List of Path objects pointing to autoflash files
+            
+        Returns:
+            dict with 'success' count, 'conversions' list of (old, new) paths, and 'errors' list
+        """
+        results = {
+            'success': 0,
+            'conversions': [],
+            'errors': []
+        }
+        
+        for autoflash_file in autoflash_files:
+            try:
+                # Create new filename by removing 'autoflash' (case-insensitive)
+                import re
+                new_name = re.sub(r'autoflash[-_]?', '', autoflash_file.name, flags=re.IGNORECASE)
+                new_name = re.sub(r'[-_]{2,}', '-', new_name)  # Clean up double separators
+                new_path = autoflash_file.parent / new_name
+                
+                # Convert the file
+                success = convert_autoflash(autoflash_file, new_path)
+                
+                if success:
+                    # Delete the original autoflash file
+                    autoflash_file.unlink()
+                    
+                    results['success'] += 1
+                    results['conversions'].append((autoflash_file, new_path))
+                else:
+                    results['errors'].append((autoflash_file, "Conversion returned False"))
+                    
+            except Exception as e:
+                results['errors'].append((autoflash_file, str(e)))
+        
+        return results
+    
+
+
     # ======== SUSI CALIBRATION MANAGER UI ========
 
     def _open_susi_calibration_manager(self):
@@ -746,7 +825,32 @@ class LabVIEWAnalysisTab:
 
         calibration = None
         if use_calibration:
-            messagebox.showinfo("Info", "Calibration loading not yet implemented.\nProceeding without calibration.")
+            cal_path = filedialog.askopenfilename(
+                title="Select Temperature Calibration File",
+                initialdir=folder,
+                filetypes=[("JSON files", "*.json"), ("All files", "*.*")]
+            )
+            if cal_path:
+                try:
+                    import json
+                    with open(cal_path, 'r') as f:
+                        calibration = json.load(f)
+                    model = calibration.get('model', 'unknown')
+                    messagebox.showinfo(
+                        "Calibration Loaded",
+                        f"Successfully loaded calibration:\n\n"
+                        f"Model: {model}\n"
+                        f"Source: {calibration.get('source_file', 'N/A')}\n"
+                        f"R² = {calibration.get('r_squared', 'N/A')}"
+                    )
+                except Exception as e:
+                    messagebox.showerror(
+                        "Calibration Error",
+                        f"Failed to load calibration file:\n{e}\n\nProceeding without calibration."
+                    )
+                    calibration = None
+            else:
+                messagebox.showinfo("Info", "No calibration file selected.\nProceeding without calibration.")
 
         # Growth rates prompt: use active SUSI calibration or manual entry
         lock_rate = None
@@ -1091,191 +1195,8 @@ class LabVIEWAnalysisTab:
         lines.append("=" * 80)
         return "\n".join(lines)
 
-    def _analyze_cooldown(self):
-        """Analyze cooldown curve from flash file and create calibration"""
-        print("\n" + "="*80)
-        print("DEBUG: Starting cooldown analysis")
-        print("="*80)
-        
-        if not hasattr(self, "_files") or not self._files:
-            messagebox.showwarning("No Files", "Scan a folder first")
-            return
-            
-        file = filedialog.askopenfilename(
-            title="Select Flash File", 
-            filetypes=[("LabVIEW Files","*.txt")], 
-            initialdir=self.folder_var.get() or None
-        )
-        if not file:
-            print("DEBUG: No file selected")
-            return
-        
-        print(f"DEBUG: Selected file: {file}")
-            
-        try:
-            import numpy as np
-            
-            print("DEBUG: Step 1 - Parsing file...")
-            parser = LabVIEWParser(file)
-            parsed = parser.parse()
-            print(f"DEBUG: Parse complete. Keys in parsed: {list(parsed.keys())}")
-            
-            print("DEBUG: Step 2 - Getting DataFrame...")
-            df = parsed.get('data')
-            print(f"DEBUG: DataFrame type: {type(df)}")
-            print(f"DEBUG: DataFrame is None: {df is None}")
-            print(f"DEBUG: DataFrame is empty: {df.empty if df is not None else 'N/A'}")
-            
-            if df is None or df.empty:
-                raise ValueError("No data found in file")
-            
-            print(f"DEBUG: DataFrame shape: {df.shape}")
-            print(f"DEBUG: DataFrame columns: {list(df.columns)}")
-            
-            print("\nDEBUG: Step 3 - Finding temperature column...")
-            temp_col = None
-            for col in ['Pyro T', 'Pyro_T', 'Pyro T ', 'PyroT', 'Pyro Temp']:
-                print(f"DEBUG:   Checking for column '{col}'...")
-                if col in df.columns:
-                    temp_col = col
-                    print(f"DEBUG:   ✓ Found: '{col}'")
-                    break
-                    
-            if temp_col is None:
-                raise ValueError(f"Temperature column not found. Available columns: {list(df.columns)}")
-            
-            print("\nDEBUG: Step 4 - Finding current column...")
-            current_col = None
-            for col in ['TDK I', 'TDK_I', 'TDK I ', 'TDKI', 'TDK Current']:
-                print(f"DEBUG:   Checking for column '{col}'...")
-                if col in df.columns:
-                    current_col = col
-                    print(f"DEBUG:   ✓ Found: '{col}'")
-                    break
-                    
-            if current_col is None:
-                raise ValueError(f"Current column not found. Available columns: {list(df.columns)}")
-            
-            print("\nDEBUG: Step 5 - Extracting data...")
-            temp = df[temp_col].to_numpy(dtype=float)
-            current = df[current_col].to_numpy(dtype=float)
-            time = df['Time'].to_numpy(dtype=float) if 'Time' in df.columns else np.arange(len(temp))
-            
-            print(f"DEBUG:   Temperature shape: {temp.shape}")
-            print(f"DEBUG:   Current shape: {current.shape}")
-            print(f"DEBUG:   Time shape: {time.shape}")
-            
-            valid_temp = np.sum(np.isfinite(temp))
-            valid_current = np.sum(np.isfinite(current))
-            print(f"DEBUG:   Valid temperature points: {valid_temp}")
-            print(f"DEBUG:   Valid current points: {valid_current}")
-            
-            if valid_temp < 10:
-                raise ValueError(f"Insufficient valid temperature points: {valid_temp}")
-            if valid_current < 10:
-                raise ValueError(f"Insufficient valid current points: {valid_current}")
-            
-            print("\nDEBUG: Step 6 - Running cooldown analysis...")
-            analyzer = CooldownAnalyzer()
-            cooldown_data = analyzer.extract_cooldown_curve(temp, current, time)
-            print(f"DEBUG:   Peak temp: {cooldown_data['peak_temp']:.1f}°C")
-            print(f"DEBUG:   Peak current: {cooldown_data['peak_current']:.4f} A")
-            print(f"DEBUG:   Cooldown points: {len(cooldown_data['current'])}")
-            
-            print("\nDEBUG: Step 7 - Determining calibration range...")
-            cooldown_current = cooldown_data['current']
-            valid_current = cooldown_current[np.isfinite(cooldown_current)]
-            
-            print(f"DEBUG:   Cooldown current points: {len(cooldown_current)}")
-            print(f"DEBUG:   Valid cooldown current points: {len(valid_current)}")
-            
-            if len(valid_current) < 5:
-                raise ValueError(
-                    f"Insufficient valid current points in cooldown phase: {len(valid_current)}\n"
-                    f"The file may not contain a proper cooldown ramp."
-                )
-            
-            cal_min = float(np.nanmin(valid_current))
-            cal_max = float(np.nanmax(valid_current))
-            
-            print(f"DEBUG:   Calibration range: {cal_min:.4f} to {cal_max:.4f} A")
-            
-            print("\nDEBUG: Step 8 - Creating calibration...")
-            calibration = analyzer.create_calibration(
-                min_current=cal_min, 
-                max_current=cal_max
-            )
-            print(f"DEBUG:   Calibration R²: {calibration['r_squared']:.6f}")
-            print(f"DEBUG:   Calibration RMSE: {calibration['rmse']:.2f}°C")
 
-            print("\nDEBUG: Step 9 - Creating plots...")
-            self._clear_plots()
-            fig1 = analyzer.plot_cooldown_curve()
-            fig2 = analyzer.plot_calibration()
-            print(f"DEBUG:   Figure 1 type: {type(fig1)}")
-            print(f"DEBUG:   Figure 2 type: {type(fig2)}")
-            
-            print("\nDEBUG: Step 10 - Embedding figures...")
-            if fig1 is not None and fig2 is not None:
-                self._embed_figs([fig1, fig2])
-                print("DEBUG:   Figures embedded successfully")
-            else:
-                print(f"DEBUG:   WARNING - fig1 is None: {fig1 is None}, fig2 is None: {fig2 is None}")
-            
-            print("\nDEBUG: Step 11 - Generating report...")
-            report = analyzer.generate_calibration_report()
-            print(f"DEBUG:   Report length: {len(report)} characters")
-            messagebox.showinfo("Calibration Report", report)
-            
-            print("\n" + "="*80)
-            print(f"DEBUG: ✅ Cooldown analysis SUCCESSFUL!")
-            print(f"DEBUG:    Peak temperature: {cooldown_data['peak_temp']:.1f}°C")
-            print(f"DEBUG:    Calibration R²: {calibration['r_squared']:.6f}")
-            print("="*80 + "\n")
 
-        except Exception as e:
-            import traceback
-            print("\n" + "="*80)
-            print("DEBUG: ❌ ERROR OCCURRED")
-            print("="*80)
-            print(f"DEBUG: Error type: {type(e).__name__}")
-            print(f"DEBUG: Error message: {str(e)}")
-            print("\nDEBUG: Full traceback:")
-            print(traceback.format_exc())
-            print("="*80 + "\n")
-            
-            error_msg = (
-                f"Failed cooldown analysis:\n{str(e)}\n\n"
-                f"File: {file}\n\n"
-                f"Full traceback:\n{traceback.format_exc()}"
-            )
-            messagebox.showerror("Cooldown Error", error_msg)
-
-    def _add_batch_rampdown_panel(self, parent_frame):
-        # Collapsible section
-        panel = ctk.CTkFrame(parent_frame)
-        panel.pack(fill="x", padx=10, pady=5)
-
-        header_frame = ctk.CTkFrame(panel)
-        header_frame.pack(fill="x", padx=5, pady=5)
-        ctk.CTkLabel(header_frame, text="🔬 Batch Ramp-Down Analysis", 
-                    font=ctk.CTkFont(size=14, weight="bold")).pack(side="left", padx=5)
-
-        controls = ctk.CTkFrame(panel)
-        controls.pack(fill="x", padx=5, pady=5)
-
-        self.batch_folder_var = ctk.StringVar(value=self.folder_var.get() if hasattr(self, 'folder_var') else "")
-        ctk.CTkEntry(controls, textvariable=self.batch_folder_var, 
-                    placeholder_text="Folder with LabVIEW .txt files").pack(side="left", fill="x", expand=True, padx=5)
-        ctk.CTkButton(controls, text="Browse", command=self._batch_browse_folder, width=80).pack(side="left", padx=2)
-        ctk.CTkButton(controls, text="Run", command=self._batch_run, width=80).pack(side="left", padx=2)
-        ctk.CTkButton(controls, text="Plots", command=self._batch_show_comparisons, width=80).pack(side="left", padx=2)
-        ctk.CTkButton(controls, text="Export", command=self._batch_export_excel, width=80).pack(side="left", padx=2)
-
-        self.batch_files_frame = ctk.CTkScrollableFrame(panel, height=120)
-        self.batch_files_frame.pack(fill="x", padx=5, pady=5)
-
-        self._batch_results = None
 
     def _batch_browse_folder(self):
         folder = filedialog.askdirectory(title="Select Ramp-Down Folder")
@@ -1391,12 +1312,37 @@ class LabVIEWAnalysisTab:
         use_calibration = messagebox.askyesno(
             "Temperature Calibration",
             "Do you have a temperature calibration from a cooldown analysis?\n\n"
-            "If Yes, you'll be asked to select the calibration file.\n"
+            "If Yes, you'll be asked to select the calibration JSON file.\n"
             "If No, overgrowth analysis will only show currents (not temperatures)."
         )
         calibration = None
         if use_calibration:
-            messagebox.showinfo("Info", "Calibration loading not yet implemented.\nProceeding without calibration.")
+            cal_path = filedialog.askopenfilename(
+                title="Select Temperature Calibration File",
+                initialdir=folder,
+                filetypes=[("JSON files", "*.json"), ("All files", "*.*")]
+            )
+            if cal_path:
+                try:
+                    import json
+                    with open(cal_path, 'r') as f:
+                        calibration = json.load(f)
+                    model = calibration.get('model', 'unknown')
+                    messagebox.showinfo(
+                        "Calibration Loaded",
+                        f"Successfully loaded calibration:\n\n"
+                        f"Model: {model}\n"
+                        f"Source: {calibration.get('source_file', 'N/A')}\n"
+                        f"R² = {calibration.get('r_squared', 'N/A')}"
+                    )
+                except Exception as e:
+                    messagebox.showerror(
+                        "Calibration Error",
+                        f"Failed to load calibration file:\n{e}\n\nProceeding without calibration."
+                    )
+                    calibration = None
+            else:
+                messagebox.showinfo("Info", "No calibration file selected.\nProceeding without calibration.")
 
         lock_rate = None
         lte_rate = None
@@ -1559,4 +1505,3 @@ class LabVIEWAnalysisTab:
 
         win.wait_window()
         return result["data"]
-                    

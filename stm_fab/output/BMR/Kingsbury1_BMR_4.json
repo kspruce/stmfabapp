@@ -1,0 +1,1160 @@
+{
+  "metadata": {
+    "template_name": "SET_Logbook_2025",
+    "process_type": "SET_LOGBOOK",
+    "created_date": "2025-11-11T12:00:00",
+    "batch_number": "Kingsbury1_20251112_151720",
+    "device_id": "",
+    "operator": "KJS",
+    "start_date": null,
+    "target_completion": null
+  },
+  "step_definitions": [
+    {
+      "step_number": 1,
+      "step_name": "Ex Situ \u2014 New Sample Mounting",
+      "parameters": {
+        "required": [
+          "sample_plate_id",
+          "substrate_id",
+          "substrate_dopant",
+          "substrate_resistivity_ohmcm",
+          "substrate_thickness_um",
+          "sample_alias",
+          "sample_id"
+        ],
+        "optional": [
+          "mount_resistance_kohm",
+          "notes"
+        ]
+      },
+      "param_types": {
+        "substrate_resistivity_ohmcm": "number",
+        "substrate_thickness_um": "number",
+        "mount_resistance_kohm": "number"
+      },
+      "quality_checks": [
+        "Sample secured",
+        "Contacts intact",
+        "Plate ID matches log"
+      ]
+    },
+    {
+      "step_number": 2,
+      "step_name": "Degassing",
+      "parameters": {
+        "required": [
+          "p_mbe_base_mbar",
+          "resistive_ramp_up_min",
+          "resistive_peak_pressure_mbar",
+          "resistive_peak_current_a",
+          "resistive_peak_temperature_c",
+          "resistive_ramp_down_min",
+          "direct_base_mbe_pressure_mbar",
+          "direct_ramp_up_min",
+          "direct_peak_pressure_mbar",
+          "direct_peak_current_a",
+          "direct_peak_temperature_c",
+          "direct_ramp_down_min"
+        ],
+        "optional": [
+          "file_name"
+        ]
+      },
+      "param_types": {
+        "p_mbe_base_mbar": "number",
+        "resistive_ramp_up_min": "number",
+        "resistive_peak_pressure_mbar": "number",
+        "resistive_peak_current_a": "number",
+        "resistive_peak_temperature_c": "number",
+        "resistive_ramp_down_min": "number",
+        "direct_base_mbe_pressure_mbar": "number",
+        "direct_ramp_up_min": "number",
+        "direct_peak_pressure_mbar": "number",
+        "direct_peak_current_a": "number",
+        "direct_peak_temperature_c": "number",
+        "direct_ramp_down_min": "number",
+        "file_name": "file"
+      },
+      "quality_checks": [
+        "Target temperatures reached",
+        "Peak pressure within acceptable range"
+      ]
+    },
+    {
+      "step_number": 3,
+      "step_name": "Flashing",
+      "parameters": {
+        "required": [
+          "idle_temperature_c",
+          "idle_current_a",
+          "flash_temperature_c",
+          "flash_current_a",
+          "cooldown_time_min"
+        ],
+        "optional": [
+          "number_of_flashes",
+          "file_name",
+          "flash_table"
+        ]
+      },
+      "param_types": {
+        "idle_temperature_c": "number",
+        "idle_current_a": "number",
+        "flash_temperature_c": "number",
+        "flash_current_a": "number",
+        "cooldown_time_min": "number",
+        "number_of_flashes": "number",
+        "file_name": "file"
+      },
+      "tables": [
+        {
+          "name": "flash_table",
+          "title": "Flash Events (default 5 rows, max 10)",
+          "default_rows": 5,
+          "max_rows": 10,
+          "columns": [
+            {
+              "key": "flash_no",
+              "label": "Flash #",
+              "type": "number"
+            },
+            {
+              "key": "temperature_c",
+              "label": "Temperature (C)",
+              "type": "number"
+            },
+            {
+              "key": "duration_s",
+              "label": "Duration (s)",
+              "type": "number"
+            },
+            {
+              "key": "p_mbe_mbar",
+              "label": "P_MBE (mbar)",
+              "type": "number"
+            }
+          ]
+        }
+      ],
+      "quality_checks": [
+        "Flashes sufficient",
+        "No abnormal P spikes"
+      ]
+    },
+    {
+      "step_number": 4,
+      "step_name": "Temperature Calibration (Cooldown analysis)",
+      "parameters": {
+        "required": [
+          "current_at_335c_a",
+          "current_at_350c_a",
+          "current_at_470c_a",
+          "current_at_250c_a"
+        ],
+        "optional": [
+          "calibration_file",
+          "calibration_notes"
+        ]
+      },
+      "param_types": {
+        "current_at_335c_a": "number",
+        "current_at_350c_a": "number",
+        "current_at_470c_a": "number",
+        "current_at_250c_a": "number",
+        "calibration_file": "file"
+      },
+      "quality_checks": [
+        "Calibration points verified",
+        "Matches prior runs"
+      ]
+    },
+    {
+      "step_number": 5,
+      "step_name": "Hydrogen Termination",
+      "parameters": {
+        "required": [
+          "termination_current_a",
+          "termination_temperature_c",
+          "termination_pressure_mbar",
+          "peak_cracker_temperature_c",
+          "peak_cracker_current_a"
+        ],
+        "optional": [
+          "seven_step_table",
+          "file_name"
+        ]
+      },
+      "param_types": {
+        "termination_current_a": "number",
+        "termination_temperature_c": "number",
+        "termination_pressure_mbar": "number",
+        "peak_cracker_temperature_c": "number",
+        "peak_cracker_current_a": "number",
+        "file_name": "file"
+      },
+      "tables": [
+        {
+          "name": "seven_step_table",
+          "title": "Termination Process (7 labeled rows)",
+          "default_rows": 7,
+          "max_rows": 10,
+          "columns": [
+            {
+              "key": "time_hhmm",
+              "label": "Time [HH:MM]",
+              "type": "string"
+            },
+            {
+              "key": "cracker_current_a",
+              "label": "Cracker I [A]",
+              "type": "number"
+            },
+            {
+              "key": "cracker_voltage_v",
+              "label": "Cracker V [V]",
+              "type": "number"
+            },
+            {
+              "key": "cracker_temperature_c",
+              "label": "Cracker T [C]",
+              "type": "number"
+            },
+            {
+              "key": "i_sample_a",
+              "label": "I_sample [A]",
+              "type": "number"
+            },
+            {
+              "key": "v_sample_v",
+              "label": "V_sample [V]",
+              "type": "number"
+            },
+            {
+              "key": "t_pyro_c",
+              "label": "T_pyro [C]",
+              "type": "number"
+            },
+            {
+              "key": "t_tc_c",
+              "label": "T_TC [C]",
+              "type": "number"
+            },
+            {
+              "key": "p_mbe_mbar",
+              "label": "P_MBE [mbar]",
+              "type": "number"
+            },
+            {
+              "key": "note",
+              "label": "Notes",
+              "type": "string"
+            }
+          ]
+        }
+      ],
+      "quality_checks": [
+        "Cooling water on",
+        "Valves configured",
+        "P_MAX within spec",
+        "Uniform termination"
+      ]
+    },
+    {
+      "step_number": 6,
+      "step_name": "Termination Check (STM)",
+      "parameters": {
+        "required": [
+          "scan_area_nm",
+          "bias_voltage_v",
+          "setpoint_current_pa"
+        ],
+        "optional": [
+          "scan_folder_location",
+          "scan_numbers_of_interest",
+          "coverage_assessment",
+          "file_name"
+        ]
+      },
+      "param_types": {
+        "scan_area_nm": "number",
+        "bias_voltage_v": "number",
+        "setpoint_current_pa": "number",
+        "file_name": "file"
+      },
+      "quality_checks": [
+        "Uniform H coverage",
+        "No contamination"
+      ]
+    },
+    {
+      "step_number": 7,
+      "step_name": "STM HDL",
+      "parameters": {
+        "required": [
+          "fem_voltage_v",
+          "fem_current_pa",
+          "fem_speed",
+          "apm_voltage_v",
+          "apm_current_pa",
+          "apm_speed"
+        ],
+        "optional": [
+          "fem_pitch",
+          "apm_pitch",
+          "passes",
+          "total_path_length_nm",
+          "file_name"
+        ]
+      },
+      "param_types": {
+        "fem_voltage_v": "number",
+        "fem_current_pa": "number",
+        "fem_speed": "number",
+        "apm_voltage_v": "number",
+        "apm_current_pa": "number",
+        "apm_speed": "number",
+        "fem_pitch": "number",
+        "apm_pitch": "number",
+        "passes": "number",
+        "total_path_length_nm": "number",
+        "file_name": "file"
+      },
+      "quality_checks": []
+    },
+    {
+      "step_number": 8,
+      "step_name": "Dose (XH3)",
+      "parameters": {
+        "required": [
+          "dopant_species",
+          "target_dose_pressure_mbar",
+          "dose_duration_s"
+        ],
+        "optional": [
+          "initial_pressure_mbar",
+          "mean_dose_pressure_mbar",
+          "baseline_pressure_mbar",
+          "exposure_langmuirs",
+          "leak_valve_start_turns",
+          "leak_valve_operating_turns",
+          "dose_start_time",
+          "dose_end_time",
+          "file_name",
+          "p_vt_channel_name"
+        ]
+      },
+      "param_types": {
+        "dopant_species": "enum",
+        "target_dose_pressure_mbar": "number",
+        "dose_duration_s": "number",
+        "initial_pressure_mbar": "number",
+        "mean_dose_pressure_mbar": "number",
+        "baseline_pressure_mbar": "number",
+        "exposure_langmuirs": "number",
+        "leak_valve_start_turns": "number",
+        "leak_valve_operating_turns": "number",
+        "dose_start_time": "string",
+        "dose_end_time": "string",
+        "file_name": "file",
+        "p_vt_channel_name": "string"
+      },
+      "param_enums": {
+        "dopant_species": [
+          "PH3",
+          "AsH3"
+        ]
+      },
+      "quality_checks": [
+        "Tip retracted",
+        "Stage locked",
+        "Matrix controller off",
+        "Pressure stable (P_VT)"
+      ]
+    },
+    {
+      "step_number": 9,
+      "step_name": "Incorporation",
+      "parameters": {
+        "required": [
+          "incorporation_temperature_c",
+          "incorporation_time_s"
+        ],
+        "optional": [
+          "planned_current_a",
+          "actual_current_a",
+          "initial_pressure_mbar",
+          "max_pressure_mbar",
+          "incorporation_location",
+          "file_name"
+        ]
+      },
+      "param_types": {
+        "incorporation_temperature_c": "number",
+        "incorporation_time_s": "number",
+        "planned_current_a": "number",
+        "actual_current_a": "number",
+        "initial_pressure_mbar": "number",
+        "max_pressure_mbar": "number",
+        "incorporation_location": "enum",
+        "file_name": "file"
+      },
+      "param_enums": {
+        "incorporation_location": [
+          "stage",
+          "manipulator"
+        ]
+      },
+      "quality_checks": [
+        "350C \u00b1 5C",
+        "2 min strict",
+        "Pressure acceptable (P_MBE)"
+      ]
+    },
+    {
+      "step_number": 10,
+      "step_name": "Overgrowth (LL + RTA + LTE)",
+      "parameters": {
+        "required": [
+          "total_overgrowth_nm",
+          "total_growth_time_s"
+        ],
+        "optional": [
+          "susi_calibration_rate_nm_min",
+          "susi_calibration_current_a",
+          "susi_calibration_date",
+          "ll_time_s",
+          "ll_current_a",
+          "ll_temperature_c",
+          "rta_temperature_c",
+          "rta_time_s",
+          "rta_current_a",
+          "lte_time_s",
+          "lte_current_a",
+          "lte_temperature_c",
+          "lte_deposited_nm",
+          "preheat_required",
+          "preheat_time_s",
+          "preheat_max_current_a",
+          "preheat_max_pressure_mbar",
+          "sample_location",
+          "overgrowth_events_table",
+          "file_name"
+        ]
+      },
+      "param_types": {
+        "total_overgrowth_nm": "number",
+        "total_growth_time_s": "number",
+        "susi_calibration_rate_nm_min": "number",
+        "susi_calibration_current_a": "number",
+        "susi_calibration_date": "string",
+        "ll_time_s": "number",
+        "ll_current_a": "number",
+        "ll_temperature_c": "number",
+        "rta_temperature_c": "number",
+        "rta_time_s": "number",
+        "rta_current_a": "number",
+        "lte_time_s": "number",
+        "lte_current_a": "number",
+        "lte_temperature_c": "number",
+        "lte_deposited_nm": "number",
+        "preheat_required": "enum",
+        "preheat_time_s": "number",
+        "preheat_max_current_a": "number",
+        "preheat_max_pressure_mbar": "number",
+        "sample_location": "string",
+        "file_name": "file"
+      },
+      "param_enums": {
+        "preheat_required": [
+          "yes",
+          "no"
+        ]
+      },
+      "tables": [
+        {
+          "name": "overgrowth_events_table",
+          "title": "Overgrowth Schedule (6 rows)",
+          "default_rows": 6,
+          "max_rows": 12,
+          "columns": [
+            {
+              "key": "t",
+              "label": "t",
+              "type": "string"
+            },
+            {
+              "key": "i_susi_a",
+              "label": "I_SUSI [A]",
+              "type": "number"
+            },
+            {
+              "key": "v_susi_v",
+              "label": "V_SUSI [V]",
+              "type": "number"
+            },
+            {
+              "key": "t_susi_c",
+              "label": "T_SUSI [C]",
+              "type": "number"
+            },
+            {
+              "key": "i_samp_a",
+              "label": "I_samp [A]",
+              "type": "number"
+            },
+            {
+              "key": "v_samp_v",
+              "label": "V_samp [V]",
+              "type": "number"
+            },
+            {
+              "key": "t_pyro_c",
+              "label": "T_pyro [C]",
+              "type": "number"
+            },
+            {
+              "key": "t_tc_c",
+              "label": "T_TC [C]",
+              "type": "number"
+            },
+            {
+              "key": "p_mbe_mbar",
+              "label": "P_MBE [mbar]",
+              "type": "number"
+            },
+            {
+              "key": "theta_deg",
+              "label": "theta [deg]",
+              "type": "number"
+            },
+            {
+              "key": "shutter",
+              "label": "Shutter",
+              "type": "string"
+            },
+            {
+              "key": "notes",
+              "label": "Notes",
+              "type": "string"
+            }
+          ]
+        }
+      ],
+      "quality_checks": [
+        "Cooling on and pumping",
+        "Position/angle verified",
+        "Shutter operations correct"
+      ]
+    }
+  ],
+  "steps": [
+    {
+      "step_number": 1,
+      "step_name": "Ex Situ \u2014 New Sample Mounting",
+      "status": "completed",
+      "operator_initials": "",
+      "start_time": "2025-11-11T12:48:09.363223",
+      "end_time": "2025-11-11T14:03:01.149009",
+      "parameters": {
+        "sample_plate_id": "G ",
+        "substrate_id": "W200306B10U3",
+        "substrate_dopant": "B",
+        "substrate_resistivity_ohmcm": "3-10",
+        "substrate_thickness_um": "300 um",
+        "sample_alias": "Kingsbury",
+        "sample_id": "S20240419BMG ",
+        "mount_resistance_kohm": "",
+        "notes": ""
+      },
+      "quality_notes": "",
+      "pre_check_pass": false,
+      "post_check_pass": true,
+      "deviations": [],
+      "corrective_actions": [],
+      "labview_file": "",
+      "sxm_scans": [],
+      "verified_by": "",
+      "verified_time": null,
+      "step_initials": "KJS",
+      "step_initial_time": "2025-11-11T14:35:57.831775",
+      "quality_check_results": {
+        "Sample secured": "Pass",
+        "Contacts intact": "Pass",
+        "Plate ID matches log": "Pass"
+      }
+    },
+    {
+      "step_number": 2,
+      "step_name": "Degassing",
+      "status": "completed",
+      "operator_initials": "",
+      "start_time": "2025-11-11T12:45:12.173796",
+      "end_time": "2025-11-11T14:03:07.122543",
+      "parameters": {
+        "resistive_degas_pressure_mbar": "1.88e-09",
+        "direct_degas_pressure_mbar": "3.29e-10",
+        "resistive_degas_duration_min": "71.6",
+        "direct_degas_duration_min": "5557.3",
+        "resistive_degas_temp_c": "TBD",
+        "direct_degas_temp_c": "TBD",
+        "file_name": "20240419_OUTGAS.txt",
+        "p_mbe_base_mbar": "3.2E-10",
+        "resistive_ramp_up_min": "15",
+        "resistive_peak_pressure_mbar": "1.9E-9",
+        "resistive_peak_current_a": "1.5",
+        "resistive_peak_temperature_c": "450",
+        "resistive_ramp_down_min": "1",
+        "direct_base_mbe_pressure_mbar": "3.5E-10",
+        "direct_ramp_up_min": "5",
+        "direct_peak_pressure_mbar": "8E-10",
+        "direct_peak_current_a": "0.5",
+        "direct_peak_temperature_c": "600",
+        "direct_ramp_down_min": "0"
+      },
+      "quality_notes": "",
+      "pre_check_pass": false,
+      "post_check_pass": true,
+      "deviations": [],
+      "corrective_actions": [],
+      "labview_file": "",
+      "sxm_scans": [],
+      "verified_by": "",
+      "verified_time": null,
+      "step_initials": "KJS",
+      "step_initial_time": "2025-11-11T14:36:13.685731",
+      "quality_check_results": {
+        "Target temperatures reached": "Pass",
+        "Peak pressure within acceptable range": "Pass"
+      }
+    },
+    {
+      "step_number": 3,
+      "step_name": "Flashing",
+      "status": "completed",
+      "operator_initials": "",
+      "start_time": "2025-11-11T12:45:12.173796",
+      "end_time": "2025-11-11T14:03:26.120291",
+      "parameters": {
+        "flash_temperature_c": "1201.0",
+        "flash_duration_s": "8.4",
+        "number_of_flashes": "9",
+        "flash_current_a": "6.5",
+        "file_name": "20240423 Flash.txt",
+        "idle_temperature_c": "900",
+        "idle_current_a": "2.4",
+        "cooldown_time_min": "30",
+        "flash_table": [
+          {
+            "flash_no": "1",
+            "temperature_c": "1201",
+            "duration_s": "11",
+            "p_mbe_mbar": "4.2E-9"
+          },
+          {
+            "flash_no": "2",
+            "temperature_c": "1170",
+            "duration_s": "6",
+            "p_mbe_mbar": "2.2E-9"
+          },
+          {
+            "flash_no": "3",
+            "temperature_c": "1166",
+            "duration_s": "6",
+            "p_mbe_mbar": "2.5E-9"
+          },
+          {
+            "flash_no": "4",
+            "temperature_c": "1165",
+            "duration_s": "6",
+            "p_mbe_mbar": "1.2E-9"
+          },
+          {
+            "flash_no": "5",
+            "temperature_c": "1162",
+            "duration_s": "6",
+            "p_mbe_mbar": "1.3E-9"
+          },
+          {
+            "flash_no": "6",
+            "temperature_c": "1167",
+            "duration_s": "8",
+            "p_mbe_mbar": "1.2E-9"
+          },
+          {
+            "flash_no": "7",
+            "temperature_c": "1162",
+            "duration_s": "20",
+            "p_mbe_mbar": "4.0E-9"
+          },
+          {
+            "flash_no": "8",
+            "temperature_c": "1194",
+            "duration_s": "6",
+            "p_mbe_mbar": "1.0E-9"
+          },
+          {
+            "flash_no": "9",
+            "temperature_c": "1192",
+            "duration_s": "7",
+            "p_mbe_mbar": "9.6E-10"
+          }
+        ]
+      },
+      "quality_notes": "",
+      "pre_check_pass": false,
+      "post_check_pass": true,
+      "deviations": [],
+      "corrective_actions": [],
+      "labview_file": "",
+      "sxm_scans": [],
+      "verified_by": "",
+      "verified_time": null,
+      "step_initials": "KJS",
+      "step_initial_time": "2025-11-11T14:36:26.386815",
+      "quality_check_results": {
+        "Flashes sufficient": "Pass",
+        "No abnormal P spikes": "Pass"
+      }
+    },
+    {
+      "step_number": 4,
+      "step_name": "Temperature Calibration (Cooldown analysis)",
+      "status": "completed",
+      "operator_initials": "",
+      "start_time": "2025-11-11T12:57:27.920541",
+      "end_time": "2025-11-11T14:03:36.150885",
+      "parameters": {
+        "current_at_335c_a": "0.040",
+        "current_at_350c_a": "0.074",
+        "current_at_470c_a": "0.140",
+        "current_at_250c_a": "0.027",
+        "calibration_file": "C:/Users/kspruce/device_record/labview_data/S20240419BMG ('Kingsbury')/tempcalib_kingsbury.json",
+        "calibration_notes": ""
+      },
+      "quality_notes": "",
+      "pre_check_pass": false,
+      "post_check_pass": true,
+      "deviations": [],
+      "corrective_actions": [],
+      "labview_file": "",
+      "sxm_scans": [],
+      "verified_by": "",
+      "verified_time": null,
+      "step_initials": "",
+      "step_initial_time": null,
+      "quality_check_results": {
+        "Calibration points verified": "Pass",
+        "Matches prior runs": "Pass"
+      }
+    },
+    {
+      "step_number": 5,
+      "step_name": "Hydrogen Termination",
+      "status": "completed",
+      "operator_initials": "",
+      "start_time": "2025-11-11T12:45:12.173796",
+      "end_time": "2025-11-11T14:03:54.179823",
+      "parameters": {
+        "h_termination_temp_c": "330",
+        "h_dose_time_s": "725.2",
+        "h2_pressure_mbar": "4.75e-07",
+        "dose_langmuirs": "258.5",
+        "file_name": "20240423 HTERMINATE.txt",
+        "termination_current_a": "0.063",
+        "termination_temperature_c": "360",
+        "termination_pressure_mbar": "5.34E-7",
+        "peak_cracker_temperature_c": "1538",
+        "peak_cracker_current_a": "11.36",
+        "seven_step_table": [
+          {
+            "time_hhmm": "1047",
+            "cracker_current_a": "0",
+            "cracker_voltage_v": "0",
+            "cracker_temperature_c": "20",
+            "i_sample_a": "",
+            "v_sample_v": "",
+            "t_pyro_c": "",
+            "t_tc_c": "",
+            "p_mbe_mbar": "",
+            "note": ""
+          },
+          {
+            "time_hhmm": "1047",
+            "cracker_current_a": "0",
+            "cracker_voltage_v": "0",
+            "cracker_temperature_c": "21",
+            "i_sample_a": "",
+            "v_sample_v": "",
+            "t_pyro_c": "",
+            "t_tc_c": "",
+            "p_mbe_mbar": "",
+            "note": ""
+          },
+          {
+            "time_hhmm": "1055",
+            "cracker_current_a": "11.36",
+            "cracker_voltage_v": "10.56",
+            "cracker_temperature_c": "1283",
+            "i_sample_a": "",
+            "v_sample_v": "",
+            "t_pyro_c": "",
+            "t_tc_c": "",
+            "p_mbe_mbar": "",
+            "note": ""
+          },
+          {
+            "time_hhmm": "1056",
+            "cracker_current_a": "11.36",
+            "cracker_voltage_v": "10.66",
+            "cracker_temperature_c": "1396",
+            "i_sample_a": "",
+            "v_sample_v": "",
+            "t_pyro_c": "",
+            "t_tc_c": "",
+            "p_mbe_mbar": "",
+            "note": ""
+          },
+          {
+            "time_hhmm": "1109",
+            "cracker_current_a": "11.36",
+            "cracker_voltage_v": "10.76",
+            "cracker_temperature_c": "1538",
+            "i_sample_a": "",
+            "v_sample_v": "",
+            "t_pyro_c": "",
+            "t_tc_c": "",
+            "p_mbe_mbar": "",
+            "note": ""
+          },
+          {
+            "time_hhmm": "1119",
+            "cracker_current_a": "0",
+            "cracker_voltage_v": "0",
+            "cracker_temperature_c": "420",
+            "i_sample_a": "",
+            "v_sample_v": "",
+            "t_pyro_c": "",
+            "t_tc_c": "",
+            "p_mbe_mbar": "",
+            "note": ""
+          },
+          {
+            "time_hhmm": "",
+            "cracker_current_a": "",
+            "cracker_voltage_v": "",
+            "cracker_temperature_c": "",
+            "i_sample_a": "",
+            "v_sample_v": "",
+            "t_pyro_c": "",
+            "t_tc_c": "",
+            "p_mbe_mbar": "",
+            "note": ""
+          }
+        ]
+      },
+      "quality_notes": "",
+      "pre_check_pass": false,
+      "post_check_pass": true,
+      "deviations": [],
+      "corrective_actions": [],
+      "labview_file": "",
+      "sxm_scans": [],
+      "verified_by": "",
+      "verified_time": null,
+      "step_initials": "",
+      "step_initial_time": null,
+      "quality_check_results": {
+        "Cooling water on": "Pass",
+        "Valves configured": "Pass",
+        "P_MAX within spec": "Pass",
+        "Uniform termination": "Pass"
+      }
+    },
+    {
+      "step_number": 6,
+      "step_name": "Termination Check (STM)",
+      "status": "completed",
+      "operator_initials": "",
+      "start_time": "2025-11-11T12:45:12.173796",
+      "end_time": "2025-11-11T14:04:00.131575",
+      "parameters": {
+        "h_termination_temp_c": "330",
+        "h_dose_time_s": "725.2",
+        "h2_pressure_mbar": "4.75e-07",
+        "dose_langmuirs": "258.5",
+        "file_name": "20240423 HTERMINATE.txt",
+        "scan_area_nm": "100",
+        "bias_voltage_v": "-2",
+        "setpoint_current_pa": "60",
+        "scan_folder_location": "",
+        "scan_numbers_of_interest": "",
+        "coverage_assessment": ""
+      },
+      "quality_notes": "",
+      "pre_check_pass": false,
+      "post_check_pass": true,
+      "deviations": [],
+      "corrective_actions": [],
+      "labview_file": "",
+      "sxm_scans": [],
+      "verified_by": "",
+      "verified_time": null,
+      "step_initials": "",
+      "step_initial_time": null,
+      "quality_check_results": {
+        "Uniform H coverage": "Pass",
+        "No contamination": "Pass"
+      }
+    },
+    {
+      "step_number": 7,
+      "step_name": "STM HDL",
+      "status": "completed",
+      "operator_initials": "",
+      "start_time": "2025-11-11T13:14:18.654420",
+      "end_time": "2025-11-11T14:04:04.014374",
+      "parameters": {
+        "fem_voltage_v": "6.5",
+        "fem_current_pa": "1.5",
+        "fem_speed": "400",
+        "apm_voltage_v": "3.5",
+        "apm_current_pa": "3.5",
+        "apm_speed": "50",
+        "fem_pitch": "3",
+        "apm_pitch": "1",
+        "passes": "",
+        "total_path_length_nm": "",
+        "file_name": ""
+      },
+      "quality_notes": "",
+      "pre_check_pass": false,
+      "post_check_pass": true,
+      "deviations": [],
+      "corrective_actions": [],
+      "labview_file": "",
+      "sxm_scans": [],
+      "verified_by": "",
+      "verified_time": null,
+      "step_initials": "",
+      "step_initial_time": null,
+      "quality_check_results": {}
+    },
+    {
+      "step_number": 8,
+      "step_name": "Dose (XH3)",
+      "status": "completed",
+      "operator_initials": "",
+      "start_time": "2025-11-11T12:45:12.173796",
+      "end_time": "2025-11-11T14:04:13.928942",
+      "parameters": {
+        "dopant_species": "PH3",
+        "dose_duration_s": "600",
+        "dose_pressure_mbar": "4.65e-09",
+        "dose_langmuirs": "2.38",
+        "background_pressure_mbar": "2.55e-11",
+        "file_name": "C:/Users/kspruce/device_record/labview_data/S20240419BMG ('Kingsbury')/20240414 PH3DOSE.txt",
+        "target_dose_pressure_mbar": "5E-9",
+        "initial_pressure_mbar": "2.65E-11",
+        "mean_dose_pressure_mbar": "4.23E-9",
+        "baseline_pressure_mbar": "2.65E-11",
+        "exposure_langmuirs": "2.59",
+        "leak_valve_start_turns": "2",
+        "leak_valve_operating_turns": "4.4",
+        "dose_start_time": "0924",
+        "dose_end_time": "0934",
+        "p_vt_channel_name": "P_VT"
+      },
+      "quality_notes": "",
+      "pre_check_pass": false,
+      "post_check_pass": true,
+      "deviations": [],
+      "corrective_actions": [],
+      "labview_file": "",
+      "sxm_scans": [],
+      "verified_by": "",
+      "verified_time": null,
+      "step_initials": "",
+      "step_initial_time": null,
+      "quality_check_results": {
+        "Tip retracted": "Pass",
+        "Stage locked": "Pass",
+        "Matrix controller off": "Pass",
+        "Pressure stable (P_VT)": "Pass"
+      }
+    },
+    {
+      "step_number": 9,
+      "step_name": "Incorporation",
+      "status": "completed",
+      "operator_initials": "",
+      "start_time": "2025-11-11T12:45:12.173796",
+      "end_time": "2025-11-11T14:04:19.128594",
+      "parameters": {
+        "incorporation_temp_c": "350",
+        "incorporation_temperature_c": "350",
+        "incorporation_time_s": "120",
+        "planned_current_a": "0.074",
+        "actual_current_a": "0.067",
+        "initial_pressure_mbar": "2.98E-11",
+        "max_pressure_mbar": "3.4E-10",
+        "incorporation_location": "stage",
+        "file_name": ""
+      },
+      "quality_notes": "",
+      "pre_check_pass": false,
+      "post_check_pass": true,
+      "deviations": [],
+      "corrective_actions": [],
+      "labview_file": "",
+      "sxm_scans": [],
+      "verified_by": "",
+      "verified_time": null,
+      "step_initials": "",
+      "step_initial_time": null,
+      "quality_check_results": {
+        "350C \u00b1 5C": "Pass",
+        "2 min strict": "Pass",
+        "Pressure acceptable (P_MBE)": "Pass"
+      }
+    },
+    {
+      "step_number": 10,
+      "step_name": "Overgrowth (LL + RTA + LTE)",
+      "status": "completed",
+      "operator_initials": "",
+      "start_time": "2025-11-11T12:45:12.173796",
+      "end_time": "2025-11-11T14:04:34.912770",
+      "parameters": {
+        "growth_temp_c": "0.0",
+        "growth_time_s": "375.0",
+        "si_flux": "TBD",
+        "target_thickness_rt_nm": "1.36",
+        "growth_rate": "1.60",
+        "file_name": "20240424 OVergrowth.txt",
+        "total_overgrowth_nm": "20",
+        "total_growth_time_s": "1:31:28",
+        "susi_calibration_rate_nm_min": "1.6",
+        "susi_calibration_current_a": "45",
+        "susi_calibration_date": "29/02/2024",
+        "ll_time_s": "6:06",
+        "ll_current_a": "0",
+        "ll_temperature_c": "20",
+        "rta_temperature_c": "470",
+        "rta_time_s": "15",
+        "rta_current_a": "0.204",
+        "lte_time_s": "1:23:39",
+        "lte_current_a": "0.037",
+        "lte_temperature_c": "290",
+        "lte_deposited_nm": "18,64",
+        "preheat_required": "no",
+        "preheat_time_s": "",
+        "preheat_max_current_a": "",
+        "preheat_max_pressure_mbar": "",
+        "sample_location": "Gate Valve",
+        "overgrowth_events_table": [
+          {
+            "t": "0917",
+            "i_susi_a": "23.4",
+            "v_susi_v": "6.15",
+            "t_susi_c": "690",
+            "i_samp_a": "",
+            "v_samp_v": "",
+            "t_pyro_c": "",
+            "t_tc_c": "",
+            "p_mbe_mbar": "",
+            "theta_deg": "",
+            "shutter": "",
+            "notes": ""
+          },
+          {
+            "t": "0931",
+            "i_susi_a": "45",
+            "v_susi_v": "4.78",
+            "t_susi_c": "1069",
+            "i_samp_a": "",
+            "v_samp_v": "",
+            "t_pyro_c": "",
+            "t_tc_c": "",
+            "p_mbe_mbar": "",
+            "theta_deg": "",
+            "shutter": "",
+            "notes": ""
+          },
+          {
+            "t": "0936",
+            "i_susi_a": "45",
+            "v_susi_v": "4.73",
+            "t_susi_c": "1060",
+            "i_samp_a": "",
+            "v_samp_v": "",
+            "t_pyro_c": "",
+            "t_tc_c": "",
+            "p_mbe_mbar": "",
+            "theta_deg": "",
+            "shutter": "",
+            "notes": ""
+          },
+          {
+            "t": "0939",
+            "i_susi_a": "45",
+            "v_susi_v": "4.85",
+            "t_susi_c": "1061",
+            "i_samp_a": "",
+            "v_samp_v": "",
+            "t_pyro_c": "",
+            "t_tc_c": "",
+            "p_mbe_mbar": "",
+            "theta_deg": "",
+            "shutter": "",
+            "notes": ""
+          },
+          {
+            "t": "0952",
+            "i_susi_a": "45",
+            "v_susi_v": "4.85",
+            "t_susi_c": "1065",
+            "i_samp_a": "",
+            "v_samp_v": "",
+            "t_pyro_c": "",
+            "t_tc_c": "",
+            "p_mbe_mbar": "",
+            "theta_deg": "",
+            "shutter": "",
+            "notes": ""
+          },
+          {
+            "t": "1106",
+            "i_susi_a": "0",
+            "v_susi_v": "0",
+            "t_susi_c": "",
+            "i_samp_a": "",
+            "v_samp_v": "",
+            "t_pyro_c": "",
+            "t_tc_c": "",
+            "p_mbe_mbar": "",
+            "theta_deg": "",
+            "shutter": "",
+            "notes": ""
+          }
+        ]
+      },
+      "quality_notes": "",
+      "pre_check_pass": false,
+      "post_check_pass": true,
+      "deviations": [],
+      "corrective_actions": [],
+      "labview_file": "",
+      "sxm_scans": [],
+      "verified_by": "",
+      "verified_time": null,
+      "step_initials": "",
+      "step_initial_time": null,
+      "quality_check_results": {
+        "Cooling on and pumping": "Pass",
+        "Position/angle verified": "Pass",
+        "Shutter operations correct": "Pass"
+      }
+    }
+  ]
+}

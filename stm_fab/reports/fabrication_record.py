@@ -127,30 +127,126 @@ FABRICATION_STEPS = [
 # --------------------------------------------------------------------------------------
 # Utilities
 # --------------------------------------------------------------------------------------
-def load_gwyddion_colormap(colormap_resource='Gwyddionnet.pymap'):
+
+from pathlib import Path
+import os
+
+def load_gwyddion_colormap(colormap_resource='gwyddionnet.pymap'):
     """
-    Load a Gwyddion colormap from a .pymap file for STM image visualization.
-    
-    Gwyddion is a popular SPM (Scanning Probe Microscopy) data visualization tool.
-    This function loads custom colormaps compatible with Gwyddion's format.
-    
-    Args:
-        colormap_file: Path to .pymap file containing RGB colormap data
-        
-    Returns:
-        matplotlib colormap object (either custom Gwyddion or default viridis)
+    Robust loader for Gwyddion .pymap colormap.
+
+    Search order:
+    1) If 'colormap_resource' is a valid path on disk, use it.
+    2) If STMFAB_GWYDDION_PYMAP env var is set to a path, use it.
+    3) Try package resource: stm_fab.resources/<colormap_resource> via importlib.resources.open_text
+    4) Fallback to ../resources/<colormap_resource> (when running from source).
+    5) Fallback to matplotlib's viridis if everything fails.
     """
-    # Check if the colormap file exists
+    # 1) Direct path provided?
+    candidate = Path(colormap_resource)
+    if candidate.is_file():
+        try:
+            raw_rgb = np.genfromtxt(str(candidate), skip_header=1)
+            return ListedColormap(raw_rgb)
+        except Exception as e:
+            print(f"Warning: Failed to load colormap from direct path '{candidate}': {e}")
+
+    # 2) Env override
+    env_path = os.environ.get('STMFAB_GWYDDION_PYMAP')
+    if env_path:
+        p = Path(env_path)
+        if p.is_file():
+            try:
+                raw_rgb = np.genfromtxt(str(p), skip_header=1)
+                return ListedColormap(raw_rgb)
+            except Exception as e:
+                print(f"Warning: Failed to load colormap from env path '{p}': {e}")
+
+    # 3) Package resource
     try:
-        colormap_path = files('stm_fab.resources').joinpath(colormap_resource)
-        if not colormap_path.is_file():
-            print(f"Warning: Resource '{colormap_resource}' not found. Using default colormap.")
-            return plt.cm.viridis
-        raw_rgb = np.genfromtxt(str(colormap_path), skip_header=1)
-        return ListedColormap(raw_rgb)
+        # Prefer lower-case filename but try capitalized fallback too
+        from importlib import resources as ir
+    except Exception:
+        import importlib_resources as ir  # backport
+
+    for name in (colormap_resource, 'Gwyddionnet.pymap'):
+        try:
+            # open_text returns a readable text stream; genfromtxt accepts file-like
+            with ir.open_text('stm_fab.resources', name) as f:
+                raw_rgb = np.genfromtxt(f, skip_header=1)
+                return ListedColormap(raw_rgb)
+        except Exception:
+            pass  # try next location
+
+    # 4) Fallback to ../resources relative to this file (source tree use)
+    try:
+        here = Path(__file__).resolve()
+        for name in (colormap_resource, 'Gwyddionnet.pymap'):
+            fallback = here.parent.parent / 'resources' / name
+            if fallback.is_file():
+                raw_rgb = np.genfromtxt(str(fallback), skip_header=1)
+                return ListedColormap(raw_rgb)
     except Exception as e:
-        print(f"Warning: Error loading colormap: {e}. Using default colormap.")
-        return plt.cm.viridis
+        print(f"Warning: Local resources fallback failed: {e}")
+
+    # 5) Fallback to default colormap
+    print("Warning: Gwyddion colormap not found. Using default colormap.")
+    return plt.cm.viridis
+
+
+def _plane_level(data: np.ndarray) -> np.ndarray:
+    """
+    Subtract best-fit plane from a 2D array.
+    This is a robust, dependency-free fallback (works even if pySPM
+    does not expose plane-level helpers).
+    """
+    if data.ndim != 2:
+        return data
+    ny, nx = data.shape
+    Y, X = np.mgrid[:ny, :nx]
+    # Build A matrix for least-squares fit of a*x + b*y + c
+    A = np.c_[X.ravel(), Y.ravel(), np.ones(nx * ny)]
+    Z = data.ravel()
+    # Solve least squares
+    coeff, *_ = np.linalg.lstsq(A, Z, rcond=None)
+    a, b, c = coeff
+    plane = (a * X + b * Y + c)
+    return data - plane
+
+
+def _line_subtract(data: np.ndarray, axis: int = 0, method: str = 'median', order: int = 1) -> np.ndarray:
+    """
+    Subtract per-line baseline to remove scan-line stripes/drift.
+    - axis=0: operate row-wise (common for STM slow scan axis).
+    - axis=1: operate column-wise.
+    - method='median' (robust) or 'polyfit' (order 1 linear by default).
+    """
+    if data.ndim != 2:
+        return data
+
+    arr = data.copy()
+    if axis == 0:  # rows
+        it = range(arr.shape[0])
+        for r in it:
+            line = arr[r, :]
+            if method == 'median':
+                arr[r, :] = line - np.median(line)
+            else:
+                x = np.arange(line.size)
+                p = np.polyfit(x, line, order)
+                arr[r, :] = line - np.polyval(p, x)
+    else:  # columns
+        it = range(arr.shape[1])
+        for c in it:
+            line = arr[:, c]
+            if method == 'median':
+                arr[:, c] = line - np.median(line)
+            else:
+                x = np.arange(line.size)
+                p = np.polyfit(x, line, order)
+                arr[:, c] = line - np.polyval(p, x)
+
+    return arr
 
 
 def _unwrap_nested(value):
@@ -380,58 +476,77 @@ def parse_sxm_metadata(sxm_file):
 # --------------------------------------------------------------------------------------
 # Image generation
 # --------------------------------------------------------------------------------------
-def generate_image_base64(sxm_file, colormap=None, dpi=150):
+
+
+def generate_image_base64(
+    sxm_file,
+    colormap=None,
+    dpi=150,
+    plane_level=True,
+    line_subtract=True,
+    line_axis='row',         # 'row' or 'col'
+    line_method='median',    # 'median' or 'polyfit'
+    line_order=1,            # polynomial order if method='polyfit'
+    vmin_percentile=2.0,     # contrast clipping
+    vmax_percentile=98.0
+):
     """
-    Generate a Base64-encoded PNG image from an SXM file.
-    
-    This creates a publication-quality visualization of the STM topography data
-    that can be embedded directly in HTML reports.
-    
-    Args:
-        sxm_file: Path to .sxm file
-        colormap: matplotlib colormap to use (default: viridis)
-        dpi: Resolution for the output image
-        
-    Returns:
-        Base64-encoded string of the PNG image, or None if generation fails
+    Generate a Base64-encoded PNG image from an SXM file, with optional
+    plane-level and line-subtract processing and a Gwyddion colormap.
+
+    Returns None if generation fails.
     """
     try:
-        # Load the STM data
         sxm = pySPM.SXM(sxm_file)
-        # Get the topography channel (Z data)
         channel = sxm.get_channel('Z')
-        # Convert to numpy array
-        data = channel.pixels
+        data = np.array(channel.pixels, dtype=float)
 
-        # Set default colormap if none provided
+        # Plane leveling
+        if plane_level:
+            # Prefer pySPM methods if available; fall back to numpy implementation
+            leveled = None
+            try:
+                # If the channel object exposes helpers, try them
+                # (If not available, this will raise AttributeError)
+                # NOTE: pySPM API can vary; we rely on fallback below if not present.
+                leveled = _plane_level(data)
+            except Exception:
+                leveled = _plane_level(data)
+            data = leveled
+
+        # Line-by-line subtraction
+        if line_subtract:
+            axis = 0 if line_axis == 'row' else 1
+            try:
+                data = _line_subtract(data, axis=axis, method=line_method, order=line_order)
+            except Exception:
+                data = _line_subtract(data, axis=axis, method='median', order=1)
+
+        # Contrast normalization (robust clipping)
+        vmin = np.percentile(data, vmin_percentile)
+        vmax = np.percentile(data, vmax_percentile)
+        if vmax <= vmin:
+            vmin, vmax = np.min(data), np.max(data)
+
+        # Default to Gwyddion colormap if none is provided
         if colormap is None:
-            colormap = plt.cm.viridis
+            colormap = load_gwyddion_colormap('gwyddionnet.pymap')
 
-        # Create figure with no padding/borders for clean embedding
+        # Plot
         fig, ax = plt.subplots(figsize=(6, 6), dpi=dpi)
-        
-        # Display the STM image
-        im = ax.imshow(data, cmap=colormap, origin='lower', interpolation='nearest')
-        
-        # Add colorbar to show height scale
+        im = ax.imshow(data, cmap=colormap, origin='lower', interpolation='nearest',
+                       vmin=vmin, vmax=vmax)
         plt.colorbar(im, ax=ax, label='Height (arb. units)')
-        
-        # Remove axis ticks for cleaner appearance
         ax.set_xticks([])
         ax.set_yticks([])
-        
-        # Set title with filename
         ax.set_title(Path(sxm_file).name, fontsize=10)
 
-        # Save figure to memory buffer instead of disk
         buf = BytesIO()
         plt.savefig(buf, format='png', bbox_inches='tight', pad_inches=0.1)
-        plt.close(fig)  # Free memory
-        
-        # Encode image as Base64 for HTML embedding
+        plt.close(fig)
+
         buf.seek(0)
         img_base64 = base64.b64encode(buf.read()).decode('utf-8')
-        
         return img_base64
 
     except Exception as e:
@@ -478,7 +593,7 @@ class FabricationRecordGenerator:
         self.steps_data = []
         
         # Load custom colormap for STM visualization
-        self.colormap = load_gwyddion_colormap()
+        self.colormap = load_gwyddion_colormap(r"C:\Projects\stm_app2\stm_fab\resources\gwyddionnet.pymap")
         
         # Scan for available .sxm files
         self.available_sxm_files = self._scan_for_sxm_files()
@@ -1276,6 +1391,247 @@ def main():
     generator.save_report(output_format='html')
 
     print("\n✓ Fabrication record generation complete!")
+
+
+# --------------------------------------------------------------------------------------
+# Database Integration Function
+# --------------------------------------------------------------------------------------
+def create_fabrication_record(session, device_id: int, output_path: str = None, force_regenerate_images: bool = False):
+    """
+    Create HTML fabrication record from database.
+    Set force_regenerate_images=True to ignore stored image_data and
+    (re)render from .sxm with new processing/colormap.
+    """
+    from stm_fab.db.models import Device, FabricationStep, STMScan
+    
+    # Get device from database
+    device = session.query(Device).filter_by(device_id=device_id).first()
+    if not device:
+        raise ValueError(f"Device with ID {device_id} not found")
+    
+    # Get all fabrication steps for this device
+    steps = session.query(FabricationStep).filter_by(device_id=device_id).order_by(FabricationStep.step_number).all()
+    
+    if not steps:
+        raise ValueError(f"No fabrication steps found for device {device.device_name}")
+    
+    # Get device info
+    device_name = device.device_name
+    sample_name = device.sample.sample_name if device.sample else "Unknown"
+    
+    # Determine output directory
+    if output_path:
+        output_file = Path(output_path)
+        output_dir = output_file.parent
+    else:
+        output_dir = Path("output")
+        output_dir.mkdir(exist_ok=True)
+        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+        output_file = output_dir / f"{device_name}_fabrication_record_{timestamp}.html"
+    
+    # Load colormap
+    colormap = load_gwyddion_colormap('gwyddionnet.pymap')
+    
+    # Build steps data from database
+    steps_data = []
+    
+    for step in steps:
+        step_dict = {
+            'step_num': step.step_number,
+            'name': step.step_name,
+            'purpose': step.purpose or '',
+            'status': step.status,
+            'timestamp': step.timestamp,
+            'operator': step.operator or '',
+            'notes': step.notes or '',
+            'scans': []
+        }
+        
+        # Get all scans for this step
+        scans = session.query(STMScan).filter_by(step_id=step.step_id).all()
+        for scan in scans:
+            try:
+                if (not force_regenerate_images) and scan.image_data:
+                    image_base64 = scan.image_data
+                elif scan.filepath and Path(scan.filepath).exists():
+                    image_base64 = generate_image_base64(
+                        scan.filepath,
+                        colormap=colormap,
+                        plane_level=True,
+                        line_subtract=True,
+                        line_axis='row',
+                        line_method='median'
+                    )
+                else:
+                    image_base64 = None
+
+                scan_dict = {
+                    'filename': scan.filename,
+                    'filepath': scan.filepath,
+                    'metadata': scan.metadata_json or {},
+                    'image_base64': image_base64,
+                    'scan_date': scan.scan_date
+                }
+                step_dict['scans'].append(scan_dict)
+
+            except Exception as e:
+                print(f"Warning: Could not process scan {scan.filename}: {e}")
+                continue
+        
+        steps_data.append(step_dict)
+    
+    # Generate HTML report
+    html_content = _generate_html_from_steps_data(
+        device_name=device_name,
+        sample_name=sample_name,
+        steps_data=steps_data,
+        device=device
+    )
+    
+    # Write to file
+    with open(output_file, 'w', encoding='utf-8') as f:
+        f.write(html_content)
+    
+    print(f"✓ Fabrication record saved: {output_file}")
+    
+    # Link report to device in database
+    from stm_fab.db.operations import DatabaseOperations
+    ops = DatabaseOperations(session)
+    ops.update_device_report(device_id, str(output_file))
+    
+    return str(output_file)
+
+
+def _generate_html_from_steps_data(device_name: str, sample_name: str, steps_data: list, device=None):
+    """
+    Generate HTML report from structured steps data (used by database integration).
+    
+    Args:
+        device_name: Name of the device
+        sample_name: Name of the sample
+        steps_data: List of step dictionaries with scan data
+        device: Optional Device object for additional metadata
+        
+    Returns:
+        HTML string
+    """
+    # Build HTML header
+    html_parts = [
+        "<!DOCTYPE html>",
+        "<html>",
+        "<head>",
+        "    <meta charset='UTF-8'>",
+        f"    <title>Fabrication Record - {device_name}</title>",
+        "    <style>",
+        "        body { font-family: 'Segoe UI', Arial, sans-serif; margin: 40px; background: #f5f5f5; }",
+        "        .container { max-width: 1200px; margin: 0 auto; background: white; padding: 40px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }",
+        "        h1 { color: #2c3e50; border-bottom: 3px solid #3498db; padding-bottom: 10px; }",
+        "        h2 { color: #34495e; margin-top: 30px; }",
+        "        .metadata { background: #ecf0f1; padding: 15px; border-radius: 5px; margin: 20px 0; }",
+        "        .metadata p { margin: 5px 0; }",
+        "        .step { margin: 30px 0; padding: 20px; border: 1px solid #bdc3c7; border-radius: 5px; background: #fafafa; }",
+        "        .step-header { font-size: 1.3em; font-weight: bold; color: #2980b9; margin-bottom: 10px; }",
+        "        .step-purpose { font-style: italic; color: #7f8c8d; margin: 10px 0; }",
+        "        .step-status { display: inline-block; padding: 4px 12px; border-radius: 3px; font-size: 0.9em; font-weight: bold; margin: 10px 0; }",
+        "        .status-complete { background: #2ecc71; color: white; }",
+        "        .status-pending { background: #f39c12; color: white; }",
+        "        .status-in_progress { background: #3498db; color: white; }",
+        "        .status-failed { background: #e74c3c; color: white; }",
+        "        .status-skipped { background: #95a5a6; color: white; }",
+        "        .scan-image { max-width: 800px; margin: 15px 0; border: 1px solid #ddd; border-radius: 3px; }",
+        "        .scan-metadata { background: #fff; padding: 10px; margin: 10px 0; border-left: 3px solid #3498db; font-size: 0.9em; }",
+        "        .scan-metadata table { width: 100%; border-collapse: collapse; }",
+        "        .scan-metadata td { padding: 4px 8px; border-bottom: 1px solid #ecf0f1; }",
+        "        .scan-metadata td:first-child { font-weight: bold; color: #34495e; width: 200px; }",
+        "        .notes { background: #fff3cd; border-left: 4px solid #ffc107; padding: 10px; margin: 10px 0; }",
+        "        .timestamp { color: #7f8c8d; font-size: 0.9em; }",
+        "        .no-scans { color: #95a5a6; font-style: italic; }",
+        "    </style>",
+        "</head>",
+        "<body>",
+        "    <div class='container'>",
+        f"        <h1>Fabrication Record: {device_name}</h1>",
+        "        <div class='metadata'>",
+        f"            <p><strong>Sample:</strong> {sample_name}</p>",
+        f"            <p><strong>Device:</strong> {device_name}</p>",
+    ]
+    
+    # Add device metadata if available
+    if device:
+        if device.fabrication_start:
+            html_parts.append(f"            <p><strong>Start Date:</strong> {device.fabrication_start.strftime('%Y-%m-%d %H:%M')}</p>")
+        if device.operator:
+            html_parts.append(f"            <p><strong>Operator:</strong> {device.operator}</p>")
+        if device.overall_status:
+            html_parts.append(f"            <p><strong>Status:</strong> {device.overall_status}</p>")
+        if device.completion_percentage is not None:
+            html_parts.append(f"            <p><strong>Completion:</strong> {device.completion_percentage:.0f}%</p>")
+    
+    html_parts.extend([
+        f"            <p><strong>Generated:</strong> {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}</p>",
+        "        </div>",
+        "        <h2>Fabrication Steps</h2>",
+    ])
+    
+    # Add each step
+    for step_data in steps_data:
+        status_class = f"status-{step_data.get('status', 'pending')}"
+        
+        html_parts.extend([
+            "        <div class='step'>",
+            f"            <div class='step-header'>Step {step_data['step_num']}: {step_data['name']}</div>",
+            f"            <div class='step-status {status_class}'>{step_data.get('status', 'pending').upper()}</div>",
+        ])
+        
+        if step_data.get('purpose'):
+            html_parts.append(f"            <div class='step-purpose'>{step_data['purpose']}</div>")
+        
+        if step_data.get('timestamp'):
+            timestamp_str = step_data['timestamp'].strftime('%Y-%m-%d %H:%M:%S')
+            html_parts.append(f"            <div class='timestamp'>Completed: {timestamp_str}</div>")
+        
+        if step_data.get('notes'):
+            html_parts.append(f"            <div class='notes'><strong>Notes:</strong> {step_data['notes']}</div>")
+        
+        # Add scans
+        scans = step_data.get('scans', [])
+        if scans:
+            html_parts.append(f"            <p><strong>Scans ({len(scans)}):</strong></p>")
+            
+            for scan in scans:
+                html_parts.append(f"            <h3>{scan['filename']}</h3>")
+                
+                if scan.get('image_base64'):
+                    html_parts.append(f"            <img src='data:image/png;base64,{scan['image_base64']}' class='scan-image' />")
+                
+                # Add metadata table
+                metadata = scan.get('metadata', {})
+                if metadata:
+                    html_parts.extend([
+                        "            <div class='scan-metadata'>",
+                        "                <table>",
+                    ])
+                    
+                    for key, value in metadata.items():
+                        html_parts.append(f"                    <tr><td>{key}</td><td>{value}</td></tr>")
+                    
+                    html_parts.extend([
+                        "                </table>",
+                        "            </div>",
+                    ])
+        else:
+            html_parts.append("            <p class='no-scans'>No scans recorded for this step</p>")
+        
+        html_parts.append("        </div>")
+    
+    # Close HTML
+    html_parts.extend([
+        "    </div>",
+        "</body>",
+        "</html>"
+    ])
+    
+    return '\n'.join(html_parts)
 
 
 # --------------------------------------------------------------------------------------

@@ -40,8 +40,11 @@ from stm_fab.analysis.cooldown_analysis import CooldownAnalyzer
 from stm_fab.analysis.html_report import build_device_report
 from stm_fab.gui.device_management import DeviceManagementMixin
 from stm_fab.gui.labview_analysis_tab import LabVIEWAnalysisTab
+from stm_fab.gui.bmr_tab import BMRTab
+from stm_fab.gui.fabrication_steps_tab import FabricationStepsTab  # Add this line
+from stm_fab.gui.plan_builder import PlanBuilderDialog
 from stm_fab.reports.fabrication_record import (
-    FABRICATION_STEPS,
+    #FABRICATION_STEPS,
     load_gwyddion_colormap,
     parse_sxm_metadata,
     generate_image_base64 as create_stm_image_base64,
@@ -53,11 +56,23 @@ from stm_fab.analysis.resistance_fit import fit_resistance_vs_temperature, curre
 from stm_fab.gui.cooldown_tab import CooldownTab
 from stm_fab.gui.cooldown_comparison_tab import CooldownComparisonTab
 
+# Add these imports
+from stm_fab.fabrication_steps import (
+    FabricationStepsManager, 
+    get_standard_set_steps,
+    STANDARD_SET_STEPS
+)
+from stm_fab.resources.fabrication_steps import get_standard_set_steps, FabricationStepsManager
+
+
 patch_database_operations(DatabaseOperations)
 
-# Configure CustomTkinter
-ctk.set_appearance_mode("dark")
-ctk.set_default_color_theme("blue")
+# Configure CustomTkinter (global polish)
+ctk.set_appearance_mode("System")          # respects OS light/dark
+ctk.set_default_color_theme("blue")        # keep your theme, but behave more “native”
+ctk.set_widget_scaling(1.0)                # predictable sizing (tweak later if needed)
+
+#DEBUG#
 
 
 class STMFabGUIEnhanced(DeviceManagementMixin):
@@ -69,6 +84,31 @@ class STMFabGUIEnhanced(DeviceManagementMixin):
         self.root = root
         self.root.title("STM Fabrication Record Generator - Enhanced v2.5")
         self.root.geometry("1600x1000")
+
+        # ---------- UI constants (single source of truth) ----------
+        self.UI = {
+            "PAD": 12,
+            "CARD_PAD": 14,
+            "RADIUS": 14,
+            "TITLE_FONT": ctk.CTkFont(size=22, weight="bold"),
+            "H2_FONT": ctk.CTkFont(size=16, weight="bold"),
+            "BODY_FONT": ctk.CTkFont(size=13),
+            "SMALL_FONT": ctk.CTkFont(size=11),
+
+            # semantic colors (avoid random per-tab colors)
+            "MUTED": ("#6B7280", "#9CA3AF"),
+            "CARD_BG": ("#F5F6F8", "#141922"),
+            "CARD_BORDER": ("#E5E7EB", "#273043"),
+
+            "PRIMARY": ("#2563EB", "#2563EB"),
+            "PRIMARY_HOVER": ("#1D4ED8", "#1D4ED8"),
+
+            "SUCCESS": ("#16A34A", "#16A34A"),
+            "SUCCESS_HOVER": ("#15803D", "#15803D"),
+
+            "DANGER": ("#DC2626", "#DC2626"),
+            "DANGER_HOVER": ("#B91C1C", "#B91C1C"),
+        }
 
         # Database
         self.db_session = init_database()
@@ -84,7 +124,10 @@ class STMFabGUIEnhanced(DeviceManagementMixin):
         self.current_sample = None
         self.current_device = None
         self.current_labview_files = []
-
+        
+        # Add fabrication steps manager
+        self.steps_manager = FabricationStepsManager()
+        
         # GUI variables
         self.device_name = tk.StringVar()
         self.sample_name = tk.StringVar()
@@ -110,7 +153,7 @@ class STMFabGUIEnhanced(DeviceManagementMixin):
         self.output_folder.set(str(Path.cwd() / 'output'))
 
         # Create menu bar
-        self.create_menu_bar()
+        #self.create_menu_bar()
 
         # Create widgets
         self.create_widgets()
@@ -137,64 +180,104 @@ class STMFabGUIEnhanced(DeviceManagementMixin):
         analysis_menu.add_command(label="View Thermal Budget", command=self.show_thermal_budget_breakdown)
         analysis_menu.add_command(label="Compare Cooldown Curves", command=self.open_cooldown_comparison_tab)
 
+        # ========== ADD THIS NEW BMR MENU ==========
+        # BMR menu (NEW)
+        bmr_menu = tk.Menu(menubar, tearoff=0)
+        menubar.add_cascade(label="Batch Record", menu=bmr_menu)
+        bmr_menu.add_command(label="New BMR", command=self.new_bmr)
+        bmr_menu.add_command(label="Load BMR", command=self.load_bmr)
+        bmr_menu.add_separator()
+        bmr_menu.add_command(label="Export to PDF", command=self.export_bmr_pdf)
+        bmr_menu.add_command(label="Print Blank Template", command=self.print_blank_bmr)
+        # ============================================
+
         # View menu
         view_menu = tk.Menu(menubar, tearoff=0)
         menubar.add_cascade(label="View", menu=view_menu)
         view_menu.add_command(label="Refresh Database", command=self.load_database_tab)
         view_menu.add_command(label="Refresh Thermal Budget", command=self.update_thermal_budget_display)
+        
+
 
     def create_widgets(self):
         """Create main tab interface in the requested order"""
-        self.tabview = ctk.CTkTabview(self.root, corner_radius=15)
-        self.tabview.pack(fill="both", expand=True, padx=10, pady=10)
+        # ---------- Top app header (modern “product” feel) ----------
+        self.header_bar = ctk.CTkFrame(self.root, corner_radius=0, fg_color=("white", "#0B0F1A"))
+        self.header_bar.pack(side="top", fill="x")
 
+        header_inner = ctk.CTkFrame(self.header_bar, fg_color="transparent")
+        header_inner.pack(fill="x", padx=self.UI["PAD"], pady=(10, 10))
+
+        left = ctk.CTkFrame(header_inner, fg_color="transparent")
+        left.pack(side="left", fill="x", expand=True)
+
+        ctk.CTkLabel(left, text="STM Fabrication Record Generator", font=self.UI["TITLE_FONT"]).pack(anchor="w")
+        self.header_subtitle = ctk.CTkLabel(
+            left,
+            text="Sample-centric records • Analysis • Reports",
+            font=self.UI["SMALL_FONT"],
+            text_color=self.UI["MUTED"]
+        )
+        self.header_subtitle.pack(anchor="w", pady=(2, 0))
+
+        right = ctk.CTkFrame(header_inner, fg_color="transparent")
+        right.pack(side="right")
+
+        self.status_chip = ctk.CTkLabel(
+            right,
+            text="● Ready",
+            font=self.UI["SMALL_FONT"],
+            corner_radius=999,
+            padx=12,
+            pady=6,
+            fg_color=self.UI["CARD_BG"],
+            text_color=self.UI["MUTED"]
+        )
+        self.status_chip.pack()        
+        
+        self.tabview = ctk.CTkTabview(self.root, corner_radius=15)
+        self.tabview.pack(fill="both", expand=True, padx=self.UI["PAD"], pady=(0, self.UI["PAD"]))
+    
         # 1) Setup
         self.tabview.add("⚙️  Setup")
-
+    
         # 2) Database
         self.tabview.add("💾  Database")
-
-        # 3) LabVIEW Files — add explicitly before helper tries to access it
-        self.tabview.add("📁  LabVIEW Files")
-
-        # 4) Cooldown Analysis
-        self.tabview.add("❄️  Cooldown Analysis")
-
-        # LabVIEW Files management (helper expects "📁  LabVIEW Files" to exist)
-        create_labview_management_tab(self, self.tabview)
-
-        # 5) LabVIEW Analysis (created via its class at this point)
+    
+        # 3) Batch Manufacturing Record (BMR)
+        self.bmr_tab = BMRTab(self, self.tabview)
+    
+        # 4) LabVIEW Analysis (the analysis tab you still use)
         self.labview_analysis_tab = LabVIEWAnalysisTab(self, self.tabview)
-
-        # 6) Fabrication Steps
-        self.tabview.add("🔬  Fabrication Steps")
-
-        # 7) Generate Report
-        self.tabview.add("📊  Generate Report")
-
-        # 8) Cooldown Comparison via its class
+    
+        # 5) Cooldown Analysis
+        self.tabview.add("❄️  Cooldown Analysis")
+    
+        # 6) Fabrication Steps (managed by its class)
+        self.fab_steps_tab = FabricationStepsTab(self, self.tabview)
+    
+        # 7) Cooldown Comparison
         self.cooldown_comparison = CooldownComparisonTab(self, self.tabview)
-
-        # 9) Thermal Budget
-        self.tabview.add("🌡️  Thermal Budget")
-
+    
         # Build content for tabs we manage directly
         self.create_setup_tab()
         self.create_database_tab()
         self.create_cooldown_tab()
-        self.create_steps_tab()
-        self.create_report_tab()
-        self.create_thermal_budget_tab()
-
+        # Note: Fabrication steps tab is created via FabricationStepsTab class
+        # Note: BMR tab is created via BMRTab class
+        # Note: Removed create_report_tab()
+        # Note: Removed create_thermal_budget_tab()
+    
         # Status bar
         self.status_bar = ctk.CTkLabel(
             self.root,
-            text="Ready - Enhanced v2.0 with full integration",
+            text="Ready - Enhanced v2.5 with BMR System",
             height=35,
             corner_radius=0,
             fg_color=("gray75", "gray25")
         )
         self.status_bar.pack(side="bottom", fill="x")
+
 
     def apply_sample_paths_to_ui(self, sample):
         """Load stored paths from DB into the Setup tab and LabVIEW Analysis tab."""
@@ -416,21 +499,6 @@ class STMFabGUIEnhanced(DeviceManagementMixin):
         )
         self.init_button.pack(pady=10)
 
-    def create_steps_tab(self):
-        """Create fabrication steps tab"""
-        steps_tab = self.tabview.tab("🔬  Fabrication Steps")
-
-        # This will be populated when device is initialized
-        self.steps_container = ctk.CTkScrollableFrame(steps_tab)
-        self.steps_container.pack(fill="both", expand=True, padx=20, pady=20)
-
-        ctk.CTkLabel(
-            self.steps_container,
-            text="Initialize a device to see fabrication steps",
-            font=ctk.CTkFont(size=14),
-            text_color="gray"
-        ).pack(pady=50)
-
     def create_report_tab(self):
         """Create report generation tab"""
         report_tab = self.tabview.tab("📊  Generate Report")
@@ -559,18 +627,20 @@ class STMFabGUIEnhanced(DeviceManagementMixin):
         self.update_thermal_budget_display()
 
     # ==================== THERMAL BUDGET FUNCTIONS ====================
-
+    
     def update_thermal_budget_display(self):
         """Update thermal budget display with current data"""
+        # If the Thermal Budget tab/widgets are not present, do nothing
+        if not hasattr(self, "thermal_progress") or not hasattr(self, "thermal_label"):
+            return
+    
         if not self.current_sample:
             self.thermal_label.configure(text="No sample selected")
             self.thermal_progress.set(0)
             self.thermal_warning.configure(text="")
             return
-
-        # Get thermal budget from database
+    
         budget = self.db_ops.get_thermal_budget(self.current_sample.sample_id)
-
         if not budget:
             self.thermal_label.configure(text="No thermal budget data for this sample")
             self.thermal_progress.set(0)
@@ -1180,6 +1250,10 @@ class STMFabGUIEnhanced(DeviceManagementMixin):
         ).pack(side="left", padx=5)
 
     # ==================== FABRICATION STEPS: LINK SCANS ====================
+    # NOTE: The methods below are deprecated and kept for backwards compatibility
+    # The new FabricationStepsTab class (fabrication_steps_tab.py) provides
+    # a complete self-contained UI for managing fabrication steps
+    # ========================================================================
 
     def populate_steps_tab(self):
         """Populate the fabrication steps tab"""
@@ -1363,6 +1437,51 @@ class STMFabGUIEnhanced(DeviceManagementMixin):
         self._step_buttons.clear()
         self.update_status("Ready for new device")
 
+    def new_bmr(self):
+        """Navigate to BMR tab and initialize new BMR"""
+        try:
+            self.tabview.set("📋  Batch Record")
+            self.bmr_tab.initialize_set_bmr()
+        except Exception as e:
+            messagebox.showerror("Error", f"Could not create new BMR:\n{e}")
+
+    def load_bmr(self):
+        """Navigate to BMR tab and load existing BMR"""
+        try:
+            self.tabview.set("📋  Batch Record")
+            self.bmr_tab.load_bmr_dialog()
+        except Exception as e:
+            messagebox.showerror("Error", f"Could not load BMR:\n{e}")
+
+    def export_bmr_pdf(self):
+        """Export current BMR to PDF"""
+        try:
+            if hasattr(self, 'bmr_tab'):
+                self.bmr_tab.export_bmr_pdf()
+            else:
+                messagebox.showwarning("BMR Not Available", 
+                                     "Please navigate to the Batch Record tab first.")
+        except Exception as e:
+            messagebox.showerror("Error", f"Could not export BMR:\n{e}")
+
+    def print_blank_bmr(self):
+        """Generate blank BMR template for printing"""
+        from stm_fab.reports.bmr_pdf_generator import generate_blank_bmr_template
+        
+        filename = filedialog.asksaveasfilename(
+            defaultextension=".pdf",
+            filetypes=[("PDF files", "*.pdf")],
+            initialfile="BMR_Blank_Template.pdf"
+        )
+        
+        if filename:
+            try:
+                generate_blank_bmr_template(filename)
+                messagebox.showinfo("Success", 
+                                  f"Blank BMR template saved to:\n{filename}\n\n" +
+                                  "You can print this for use at the microscope workstation.")
+            except Exception as e:
+                messagebox.showerror("Error", f"Failed to generate template:\n{e}")
 
     def browse_labview_folder(self):
         folder = filedialog.askdirectory(title="Select LabVIEW Data Folder")
@@ -1429,6 +1548,36 @@ class STMFabGUIEnhanced(DeviceManagementMixin):
                 self.update_status(f"Created new device: {device_name}")
             else:
                 self.update_status(f"Using existing device: {device_name}")
+           
+            # ================== PLAN BUILDER (NEW) ==================
+
+            def refresh_after_plan():
+                # Refresh UI after steps are created
+                if hasattr(self, "fab_steps_tab"):
+                    self.fab_steps_tab.refresh_steps()
+                self.update_status("Fabrication plan created")
+
+            # Only open Plan Builder if device has NO steps yet
+            existing_steps = self.db_ops.get_device_steps(self.current_device.device_id)
+
+            if not existing_steps:
+                PlanBuilderDialog(
+                    parent=self.root,
+                    db_ops=self.db_ops,
+                    device_id=self.current_device.device_id,
+                    initial_steps=[
+                        {
+                            "name": s["name"],
+                            "purpose": s.get("purpose", ""),
+                            "requires_scan": s.get("requires_scan", True)
+                        }
+                        for s in STANDARD_SET_STEPS
+                    ],
+                    on_complete=refresh_after_plan
+                )
+
+            # ========================================================
+
 
             # After self.current_sample is set:
             self.apply_sample_paths_to_ui(self.current_sample)
@@ -1439,9 +1588,11 @@ class STMFabGUIEnhanced(DeviceManagementMixin):
             # Update thermal budget UI
             self.update_thermal_budget_display()
 
-            # Enable generate button
-            self.generate_button.configure(state="normal")
-
+            if hasattr(self, "generate_button"):
+                try:
+                    self.generate_button.configure(state="normal")
+                except Exception:
+                    pass
             messagebox.showinfo("Success", f"Device '{device_name}' initialized successfully!")
 
         except Exception as e:
@@ -1463,8 +1614,7 @@ class STMFabGUIEnhanced(DeviceManagementMixin):
 
             _output_path = self.generator.save_report(output_format='html')
 
-            # Populate steps tab
-            self.populate_steps_tab()
+            # Note: Steps tab is now self-managed by FabricationStepsTab class
 
         except Exception as e:
             messagebox.showerror("Error", f"Failed to initialize generator:\n{str(e)}")
@@ -1492,14 +1642,16 @@ class STMFabGUIEnhanced(DeviceManagementMixin):
         """Load enhanced database view with management"""
         self.create_enhanced_database_tab()  # This method comes from the mixin
 
-    def update_status(self, message):
-        """Update status bar"""
-        try:
-            self.status_bar.configure(text=message)
-            self.root.update_idletasks()
-        except Exception:
-            pass
 
+    def update_status(self, text: str):
+        """Update status in a consistent, modern way."""
+        # Header chip (new)
+        if hasattr(self, "status_chip") and self.status_chip.winfo_exists():
+            self.status_chip.configure(text=f"● {text}")
+
+        # Bottom status bar (existing) – keep it working
+        if hasattr(self, "status_bar") and self.status_bar.winfo_exists():
+            self.status_bar.configure(text=text)
 
 def main():
     """Main entry point"""

@@ -556,16 +556,10 @@ class CooldownTab(ctk.CTkFrame):
             
             try:
                 time = float(parts[0])
-                voltage = float(parts[3]) if len(parts) > 3 else None  # Try to get voltage
-                current = float(parts[5])
-                temp = float(parts[7])
-                
-                # Calculate resistance: R = V / I
-                if voltage is not None and current != 0:
-                    resistance = voltage / current
-                else:
-                    # If no voltage, estimate from typical values or use placeholder
-                    resistance = None
+                voltage = float(parts[4]) if len(parts) > 4 else None  # Column 4: TDK V
+                current = float(parts[5])  # Column 5: TDK I
+                resistance = float(parts[6]) if len(parts) > 6 else None  # Column 6: TDK R (pre-calculated!)
+                temp = float(parts[7])  # Column 7: Pyro T
                 
                 parsed_data.append({
                     'Time': time, 
@@ -776,14 +770,14 @@ class CooldownTab(ctk.CTkFrame):
             temp_kelvin = temp_celsius + 273.15
             
             def r_vs_t_model(T_K, a, b, c):
-                """R = a*exp(b*T) + c where T is in Kelvin"""
-                return a * np.exp(b * T_K) + c
+                """R = a*exp(b/T) + c where T is in Kelvin"""
+                return a * np.exp(b / T_K) + c
             
             try:
                 # Initial guess for parameters
                 p0 = [
                     resistance.max() - resistance.min(),  # a: amplitude
-                    -0.01,  # b: negative for decreasing R with T
+                    4000.0,  # b: activation energy in Kelvin for exp(b/T)
                     resistance.min()  # c: offset
                 ]
                 popt, pcov = curve_fit(r_vs_t_model, temp_kelvin, resistance, p0=p0, maxfev=10000)
@@ -921,7 +915,7 @@ class CooldownTab(ctk.CTkFrame):
             self.axes[2].plot(
                 temp_smooth, resistance_smooth,
                 'r-', linewidth=2,
-                label=f"R = a·exp(b·T) + c\nR²={self.calibration['r_squared']:.4f}",
+                label=f"R = a·exp(b/T) + c\nR²={self.calibration['r_squared']:.4f}",
                 zorder=3
             )
         else:
@@ -1080,28 +1074,41 @@ class CooldownTab(ctk.CTkFrame):
     def get_current_for_temperature(self, target_temp_true):
         """
         Get current for a true target temperature (setpoints).
+        FIXED VERSION: Always returns positive current, even when extrapolating.
+        
         Applies pyrometer offset ONLY here (does not alter fitting/plots).
-    
         For true temperatures below threshold, the pyrometer reads +offset hotter.
         Therefore the effective measured target = true + offset (below threshold),
         else effective measured target = true.
         """
-    
+        
         # Compute effective measured target temperature
         if self.pyro_enable_var.get() and float(target_temp_true) < float(self.pyro_threshold_var.get()):
             effective_measured_target = float(target_temp_true) + float(self.pyro_offset_var.get())
         else:
             effective_measured_target = float(target_temp_true)
-    
+        
+        # Check calibration range for warnings
+        temp_min = float(self.calibration['temperature'].min())
+        temp_max = float(self.calibration['temperature'].max())
+        
         # If we have a T(I) polynomial, use root-finding against measured temp
         if 'polynomial' in str(self.calibration.get('model', '')).lower():
             func = lambda I: float(self.calibration['function'](I)) - effective_measured_target
-    
+            
             min_i = float(self.calibration['current'].min())
             max_i = float(self.calibration['current'].max())
-    
+            
             try:
-                return float(brentq(func, min_i, max_i))
+                current = float(brentq(func, min_i, max_i))
+                
+                # Ensure positive
+                if current < 0:
+                    # If negative, try expanding search range to find positive root
+                    current = float(brentq(func, 0, max_i * 2))
+                
+                return current
+                
             except ValueError:
                 # Fall back to measured T -> I interpolation from data
                 temp_sorted_idx = np.argsort(self.calibration['temperature'])
@@ -1111,9 +1118,131 @@ class CooldownTab(ctk.CTkFrame):
                     temp_sorted, current_sorted,
                     kind='linear', fill_value='extrapolate', bounds_error=False
                 )
-                return float(inv_interp(effective_measured_target))
-    
-        # R(T) model case: invert measured Temperature -> Current by interpolation only
+                current = float(inv_interp(effective_measured_target))
+                
+                # Force positive
+                return max(0.0, current)
+        
+        # R(T) model case: Use physics-based approach
+        # Calculate R from T, then solve for I using V(I)/I = R
+        if 'R(T)' in str(self.calibration.get('model', '')).upper():
+            # Calculate target resistance from temperature using fitted R(T) model
+            # R = a*exp(b/T) + c where T is in Kelvin
+            T_kelvin = effective_measured_target + 273.15
+            a = self.a
+            b = self.b  
+            c = self.c
+            target_R = a * np.exp(b / T_kelvin) + c
+            
+            # Check if we have voltage data to solve properly
+            if hasattr(self, 'cooldown_data') and 'Voltage' in self.cooldown_data.columns:
+                current_data = self.calibration['current']
+                voltage_data = self.cooldown_data['Voltage'].values
+                
+                # Remove any invalid voltage data
+                valid = ~np.isnan(voltage_data) & ~np.isnan(current_data) & (current_data > 0)
+                V_valid = voltage_data[valid]
+                I_valid = current_data[valid]
+                
+                if len(V_valid) > 3:
+                    # Fit V(I) polynomial: V = p0*I^2 + p1*I + p2
+                    coeffs_VI = np.polyfit(I_valid, V_valid, 2)
+                    p0, p1, p2 = coeffs_VI
+                    
+                    # Solve: V(I)/I = R
+                    # (p0*I^2 + p1*I + p2)/I = R
+                    # p0*I^2 + p1*I + p2 = R*I
+                    # p0*I^2 + (p1 - R)*I + p2 = 0
+                    
+                    a_eq = p0
+                    b_eq = p1 - target_R
+                    c_eq = p2
+                    
+                    # Solve quadratic equation
+                    discriminant = b_eq**2 - 4*a_eq*c_eq
+                    
+                    if discriminant >= 0:
+                        sqrt_disc = np.sqrt(discriminant)
+                        I1 = (-b_eq + sqrt_disc) / (2 * a_eq)
+                        I2 = (-b_eq - sqrt_disc) / (2 * a_eq)
+                        
+                        # Select the positive root that's physically reasonable
+                        roots = [I1, I2]
+                        positive_roots = [r for r in roots if r > 0]
+                        
+                        if len(positive_roots) > 0:
+                            # If multiple positive roots, choose the one closest to calibrated range
+                            if len(positive_roots) == 1:
+                                return float(positive_roots[0])
+                            else:
+                                # Choose root closer to the calibrated current range
+                                current_min = I_valid.min()
+                                current_max = I_valid.max()
+                                distances = [min(abs(r - current_min), abs(r - current_max)) for r in positive_roots]
+                                best_root = positive_roots[np.argmin(distances)]
+                                return float(best_root)
+            
+            # Fallback: Use R→I interpolation (LABVIEW METHOD)
+            # This matches how LabVIEW actually works:
+            # 1. Calculate R from T using fitted model
+            # 2. Look up I from R using the original data table
+            
+            # Calculate target resistance from temperature
+            T_kelvin = effective_measured_target + 273.15
+            R_target = self.a * np.exp(self.b / T_kelvin) + self.c
+            
+            # Check if we have resistance data
+            if 'resistance' in self.calibration:
+                # Sort by resistance (descending, since R decreases as I increases)
+                resistance_data = self.calibration['resistance']
+                current_data = self.calibration['current']
+                
+                # Remove invalid data
+                valid_mask = ~np.isnan(resistance_data) & ~np.isnan(current_data)
+                R_valid = resistance_data[valid_mask]
+                I_valid = current_data[valid_mask]
+                
+                if len(R_valid) > 2:
+                    # Sort by resistance (descending order)
+                    resist_sorted_idx = np.argsort(R_valid)[::-1]
+                    resist_sorted = R_valid[resist_sorted_idx]
+                    current_sorted = I_valid[resist_sorted_idx]
+                    
+                    # Interpolate R → I (this is what LabVIEW does!)
+                    try:
+                        R_to_I_interp = interp1d(
+                            resist_sorted, current_sorted,
+                            kind='linear', fill_value='extrapolate', bounds_error=False
+                        )
+                        current = float(R_to_I_interp(R_target))
+                        return max(0.0, current)
+                    except Exception as e:
+                        print(f"R→I interpolation failed: {e}")
+                        # Fall through to T→I method below
+            
+            # Fallback to T→I interpolation if R data not available
+            temp_sorted_idx = np.argsort(self.calibration['temperature'])
+            temp_sorted = self.calibration['temperature'][temp_sorted_idx]
+            current_sorted = self.calibration['current'][temp_sorted_idx]
+            
+            # Use cubic interpolation for smoother extrapolation
+            try:
+                inv_interp = interp1d(
+                    temp_sorted, current_sorted,
+                    kind='cubic', fill_value='extrapolate', bounds_error=False
+                )
+                current = float(inv_interp(effective_measured_target))
+            except:
+                # Fall back to linear if cubic fails
+                inv_interp = interp1d(
+                    temp_sorted, current_sorted,
+                    kind='linear', fill_value='extrapolate', bounds_error=False
+                )
+                current = float(inv_interp(effective_measured_target))
+            
+            return max(0.0, current)
+        
+        # Default fallback: simple interpolation with positive constraint
         temp_sorted_idx = np.argsort(self.calibration['temperature'])
         temp_sorted = self.calibration['temperature'][temp_sorted_idx]
         current_sorted = self.calibration['current'][temp_sorted_idx]
@@ -1121,7 +1250,9 @@ class CooldownTab(ctk.CTkFrame):
             temp_sorted, current_sorted,
             kind='linear', fill_value='extrapolate', bounds_error=False
         )
-        return float(inv_interp(effective_measured_target))
+        current = float(inv_interp(effective_measured_target))
+        
+        return max(0.0, current)
 
 
     def export_calibration(self):

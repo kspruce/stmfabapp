@@ -227,9 +227,21 @@ def analyze_dose(df: pd.DataFrame,
                  molecular_weight: Optional[float] = None,
                  filename: str = '',
                  temperature_K: float = 300.0,
-                 pressure_units: str = 'mbar') -> Dict[str, Any]:
+                 pressure_units: str = 'mbar',
+                 # NEW optional controls (defaults keep legacy behavior)
+                 method: str = 'baseline_or_abs',            # 'baseline_or_abs' (default) or 'relative_to_peak'
+                 entry_frac: float = 0.10,                   # for 'relative_to_peak' (10% of (peak-baseline))
+                 exit_frac: float = 0.05,                    # hysteresis exit (5% of (peak-baseline))
+                 min_duration_s: float = 60.0                # require ≥ this duration above exit threshold
+                 ) -> Dict[str, Any]:
     """
-    Analyze dose step: calculate flux, exposure, integrated molecules
+    Analyze dose step: calculate flux, exposure, integrated molecules.
+
+    method:
+      - 'baseline_or_abs' (default): legacy behavior (baseline*10 vs absolute floor)
+      - 'relative_to_peak': detect main plateau using thresholds relative to
+        (peak - baseline_pre), with hysteresis and minimum duration. This is
+        robust for large dynamic range H2 doses (e.g., ~5e-7) with ramps.
     """
     if pressure_col not in df.columns or time_col not in df.columns:
         return {'error': f'Missing columns: {pressure_col} or {time_col}'}
@@ -245,57 +257,148 @@ def analyze_dose(df: pd.DataFrame,
     if len(time) < 2:
         return {'error': 'Insufficient valid data points'}
 
+    # Normalize units -> Torr internally
     if pressure_units == 'mbar':
         pressure_torr = pressure * 0.75006
     elif pressure_units == 'Pa':
         pressure_torr = pressure * 0.00750062
     else:
+        # assume Torr
         pressure_torr = pressure
 
-    baseline = np.min(pressure_torr)
-    thr_from_baseline = baseline * 10
-    abs_thr = 5e-10 * 0.75006
-    dose_thr = min(thr_from_baseline, abs_thr)
+    # Legacy method: baseline or absolute floor
+    if method == 'baseline_or_abs':
+        baseline = float(np.min(pressure_torr))
+        thr_from_baseline = baseline * 10.0
+        abs_thr = 5e-10 * 0.75006  # absolute floor in Torr
+        dose_thr = min(thr_from_baseline, abs_thr)
 
-    dose_mask = pressure_torr > dose_thr
-    if not np.any(dose_mask):
-        return {
-            'baseline_pressure_torr': float(baseline),
-            'peak_pressure_torr': float(np.max(pressure_torr)),
-            'dose_threshold_torr': float(dose_thr),
-            'dose_detected': False,
-            'dose_duration_s': 0.0,
-            'exposure_langmuirs': 0.0,
-            'integrated_dose_cm2': 0.0,
-            'molecular_weight_gmol': float(molecular_weight)
-        }
+        dose_mask = pressure_torr > dose_thr
+        if not np.any(dose_mask):
+            return {
+                'baseline_pressure_torr': float(baseline),
+                'peak_pressure_torr': float(np.max(pressure_torr)),
+                'dose_threshold_torr': float(dose_thr),
+                'dose_detected': False,
+                'dose_duration_s': 0.0,
+                'exposure_langmuirs': 0.0,
+                'integrated_dose_cm2': 0.0,
+                'molecular_weight_gmol': float(molecular_weight),
+                'threshold_method': 'baseline_or_abs'
+            }
 
-    dose_time = time[dose_mask]
-    dose_pressure_torr = pressure_torr[dose_mask]
-    dose_start, dose_end = dose_time[0], dose_time[-1]
-    dose_duration = dose_end - dose_start
+        i0 = int(np.where(dose_mask)[0][0])
+        i1 = int(np.where(dose_mask)[0][-1])
+        dose_time = time[i0:i1+1]
+        dose_pressure_torr = pressure_torr[i0:i1+1]
 
-    exposure_torr_s = np.trapz(dose_pressure_torr, dose_time)
-    exposure_L = exposure_torr_s * 1e6
+    else:
+        # Robust method: thresholds relative to (peak - pre-peak baseline), with hysteresis
+        # 1) Peak index/time/value
+        peak_idx = int(np.argmax(pressure_torr))
+        peak_val = float(pressure_torr[peak_idx])
 
-    sqrt_MT = np.sqrt(molecular_weight * temperature_K)
+        # 2) Pre-peak baseline: median of the earlier portion (avoid ramp influence)
+        n = len(pressure_torr)
+        pre_len = max(min(int(0.1 * n), peak_idx), 30)  # first 10% or up to peak, at least 30 samples if possible
+        if pre_len >= 5:
+            baseline_pre = float(np.median(pressure_torr[:pre_len]))
+        else:
+            baseline_pre = float(np.min(pressure_torr))
+
+        dyn = max(peak_val - baseline_pre, 0.0)
+        if dyn <= 0:
+            return {
+                'baseline_pressure_torr': float(baseline_pre),
+                'peak_pressure_torr': float(peak_val),
+                'dose_detected': False,
+                'dose_duration_s': 0.0,
+                'exposure_langmuirs': 0.0,
+                'integrated_dose_cm2': 0.0,
+                'molecular_weight_gmol': float(molecular_weight),
+                'threshold_method': 'relative_to_peak',
+                'note': 'No dynamic range between baseline and peak'
+            }
+
+        entry_thr = baseline_pre + entry_frac * dyn
+        exit_thr  = baseline_pre + exit_frac  * dyn
+
+        above_exit = pressure_torr >= exit_thr
+
+        # 3) Find the contiguous segment above exit_thr that CONTAINS the peak (robust to ramps/noise)
+        padded = np.concatenate(([False], above_exit, [False]))
+        diffs = np.diff(padded.astype(int))
+        starts = np.where(diffs == 1)[0]
+        ends   = np.where(diffs == -1)[0]
+
+        seg_with_peak = None
+        for s, e in zip(starts, ends):
+            if s <= peak_idx < e:
+                seg_with_peak = (s, e)  # indices in 'time' space
+                break
+
+        if seg_with_peak is None:
+            # If nothing contains the peak, no robust dose plateau found
+            return {
+                'baseline_pressure_torr': float(baseline_pre),
+                'peak_pressure_torr': float(peak_val),
+                'dose_detected': False,
+                'dose_duration_s': 0.0,
+                'exposure_langmuirs': 0.0,
+                'integrated_dose_cm2': 0.0,
+                'molecular_weight_gmol': float(molecular_weight),
+                'threshold_method': 'relative_to_peak',
+                'note': 'No contiguous segment above exit threshold contains the peak'
+            }
+
+        i_start_exit, i_end_exit = seg_with_peak
+
+        # 4) Enforce minimum duration on plateau segment
+        if (time[i_end_exit-1] - time[i_start_exit]) < float(min_duration_s):
+            # Short blip; treat as not a valid dose
+            return {
+                'baseline_pressure_torr': float(baseline_pre),
+                'peak_pressure_torr': float(peak_val),
+                'dose_detected': False,
+                'dose_duration_s': 0.0,
+                'exposure_langmuirs': 0.0,
+                'integrated_dose_cm2': 0.0,
+                'molecular_weight_gmol': float(molecular_weight),
+                'threshold_method': 'relative_to_peak',
+                'note': f'Segment above exit threshold shorter than {min_duration_s:.1f} s'
+            }
+
+        # 5) Use the exit-threshold segment as the dose window (hysteresis ensures clean edges)
+        i0, i1 = i_start_exit, i_end_exit - 1  # 'ends' are exclusive index
+        dose_time = time[i0:i1+1]
+        dose_pressure_torr = pressure_torr[i0:i1+1]
+
+    # Common metrics using the chosen window (legacy or robust)
+    dose_start, dose_end = float(dose_time[0]), float(dose_time[-1])
+    dose_duration = float(dose_end - dose_start)
+
+    exposure_torr_s = float(np.trapz(dose_pressure_torr, dose_time))
+    exposure_L = float(exposure_torr_s * 1e6)
+
+    sqrt_MT = float(np.sqrt(molecular_weight * temperature_K))
     flux = 3.513e22 * dose_pressure_torr / sqrt_MT
-    integrated = np.trapz(flux, dose_time)
+    integrated = float(np.trapz(flux, dose_time))
 
     return {
-        'baseline_pressure_torr': float(baseline),
-        'peak_pressure_torr': float(np.max(dose_pressure_torr)),
-        'dose_threshold_torr': float(dose_thr),
+        'baseline_pressure_torr': float(np.min(pressure_torr)),
+        'peak_pressure_torr': float(np.max(pressure_torr)),
         'dose_detected': True,
-        'dose_duration_s': float(dose_duration),
-        'dose_start_time_s': float(dose_start),
-        'dose_end_time_s': float(dose_end),
+        'dose_start_time_s': dose_start,
+        'dose_end_time_s': dose_end,
+        'dose_duration_s': dose_duration,
         'mean_dose_pressure_torr': float(np.mean(dose_pressure_torr)),
-        'exposure_langmuirs': float(exposure_L),
+        'exposure_langmuirs': exposure_L,
         'molecular_weight_gmol': float(molecular_weight),
         'temperature_K': float(temperature_K),
-        'integrated_dose_cm2': float(integrated),
-        'mean_flux_cm2s': float(np.mean(flux))
+        'integrated_dose_cm2': integrated,
+        'mean_flux_cm2s': float(np.mean(flux)),
+        'dose_threshold_torr': float(locals().get('exit_thr', np.nan)),  # for reference
+        'threshold_method': method
     }
 
 
@@ -976,10 +1079,19 @@ def analyze_outgas(df: pd.DataFrame,
                    time_col: str = 'Time_s',
                    pressure_units: str = 'mbar',
                    stabilization_window_s: float = 300.0,
-                   stabilization_threshold: float = 0.05) -> Dict[str, Any]:
+                   stabilization_threshold: float = 0.05,
+                   return_to_baseline_factor: float = 1.2,
+                   slope_fraction_threshold: float = 0.05) -> Dict[str, Any]:
     """
     Outgas/degas analysis: base/peak pressure, time to stabilize.
-    Prefers P_MBE; falls back to VT, recording which was used.
+    Improvements:
+      - Stabilization is sought only AFTER the peak pressure.
+      - Stabilization requires:
+          (a) low variation (std/mean < stabilization_threshold),
+          (b) window mean near the final baseline target (<= baseline_target * factor),
+          (c) flat window (fractional change across window <= slope_fraction_threshold).
+      - Baseline target: robust post-peak 'tail' median when possible, else global min.
+      - Returns time-to-stabilize from start (compat) and from peak (new).
     """
     if time_col not in df.columns:
         return {'error': f'Missing column: {time_col}'}
@@ -996,55 +1108,143 @@ def analyze_outgas(df: pd.DataFrame,
         warning = f"Preferred MBE gauge not found. Using '{chosen_col}' instead."
 
     time = df[time_col].to_numpy(dtype=float)
-    pressure = df[chosen_col].to_numpy(dtype=float)
-    mask = np.isfinite(time) & np.isfinite(pressure) & (pressure > 0)
-    time = time[mask]; pressure = pressure[mask]
+    pressure_raw = df[chosen_col].to_numpy(dtype=float)
+    mask = np.isfinite(time) & np.isfinite(pressure_raw) & (pressure_raw > 0)
+    time = time[mask]; pressure_raw = pressure_raw[mask]
     if len(time) < 2:
         return {'error': 'Insufficient valid data points'}
 
+    # Convert to Torr internally for consistent metrics
     if pressure_units == 'mbar':
-        pressure_torr = pressure * 0.75006
+        pressure_torr = pressure_raw * 0.75006
     elif pressure_units == 'Pa':
-        pressure_torr = pressure * 0.00750062
+        pressure_torr = pressure_raw * 0.00750062
     else:
-        pressure_torr = pressure
+        pressure_torr = pressure_raw
 
-    base = np.min(pressure_torr)
-    peak = np.max(pressure_torr)
-    final = pressure_torr[-1]
+    # Basic metrics
+    peak_idx = int(np.argmax(pressure_torr))
+    peak_torr = float(pressure_torr[peak_idx])
+    peak_time = float(time[peak_idx])
 
-    stabilized = False; stabilized_time = None
-    dt = np.median(np.diff(time)) if len(time) > 1 else 0
-    window_size = int(stabilization_window_s / dt) if dt > 0 else 0
-    if window_size < 5: window_size = 5
+    base_global_torr = float(np.min(pressure_torr))  # global min (robust-ish if long)
+    final_torr = float(pressure_torr[-1])
 
-    for i in range(window_size, len(pressure_torr)):
-        window = pressure_torr[i-window_size:i]
-        mean_p = np.mean(window); std_p = np.std(window)
-        if mean_p > 0 and (std_p / mean_p) < stabilization_threshold:
-            stabilized = True; stabilized_time = time[i]; break
+    # Build a robust "tail baseline" from the last chunk of data after the peak
+    # Use the last max(300 s, 10% of series) window (or as much as available)
+    dt = float(np.median(np.diff(time))) if len(time) > 1 else 0.0
+    tail_seconds = max(300.0, 0.10 * (time[-1] - time[0]))  # tunable
+    tail_size = int(round(tail_seconds / dt)) if dt > 0 else 0
+    tail_size = max(tail_size, 30)  # make it at least some samples if dt small
+    if tail_size >= len(pressure_torr):
+        tail_size = max(5, len(pressure_torr) // 3)
+
+    tail_start = max(len(pressure_torr) - tail_size, peak_idx + 1)
+    if tail_start < len(pressure_torr):
+        tail_baseline_torr = float(np.median(pressure_torr[tail_start:]))
+    else:
+        # If no room for tail, fall back to global min
+        tail_baseline_torr = base_global_torr
+
+    # Choose a conservative baseline target (prefer actual post-peak floor):
+    baseline_target_torr = min(tail_baseline_torr, base_global_torr)
+
+    # Sliding window AFTER the peak to detect stabilization
+    stabilized = False
+    stabilized_time_abs = None
+    stabilized_time_from_peak = None
+
+    window_size = int(round(stabilization_window_s / dt)) if dt > 0 else 0
+    if window_size < 5:
+        window_size = 5
+
+    start_idx = max(peak_idx + 1, window_size)  # ensure full window and after-peak
+
+    for i in range(start_idx, len(pressure_torr)):
+        win_p = pressure_torr[i - window_size:i]
+        win_t = time[i - window_size:i]
+        if win_p.size < 5:
+            continue
+
+        mean_p = float(np.mean(win_p))
+        std_p = float(np.std(win_p))
+        cov_ok = (mean_p > 0) and ((std_p / mean_p) < stabilization_threshold)
+
+        # Require near-baseline (within factor)
+        near_baseline_ok = mean_p <= (baseline_target_torr * return_to_baseline_factor)
+
+        # Flatness: fractional change across window
+        # slope [Torr/s] from linear fit (robust enough for this use)
+        try:
+            slope, intercept = np.polyfit(win_t, win_p, 1)
+            frac_change = abs(slope) * (win_t[-1] - win_t[0]) / max(mean_p, 1e-99)
+        except Exception:
+            frac_change = 0.0
+        flat_ok = frac_change <= slope_fraction_threshold
+
+        # Optional: also ensure the last point itself is near baseline
+        last_ok = win_p[-1] <= (baseline_target_torr * return_to_baseline_factor)
+
+        if cov_ok and near_baseline_ok and flat_ok and last_ok:
+            stabilized = True
+            stabilized_time_abs = float(time[i])
+            stabilized_time_from_peak = float(time[i] - peak_time)
+            break
+
+
+    t0 = float(time[0])
 
     result = {
         'pressure_column_used': chosen_col,
-        'base_pressure_torr': float(base),
-        'base_pressure_mbar': float(base / 0.75006),
-        'peak_pressure_torr': float(peak),
-        'peak_pressure_mbar': float(peak / 0.75006),
-        'final_pressure_torr': float(final),
-        'final_pressure_mbar': float(final / 0.75006),
+        'base_pressure_torr': base_global_torr,
+        'base_pressure_mbar': float(base_global_torr / 0.75006),
+        'peak_pressure_torr': peak_torr,
+        'peak_pressure_mbar': float(peak_torr / 0.75006),
+        'final_pressure_torr': final_torr,
+        'final_pressure_mbar': float(final_torr / 0.75006),
         'total_duration_s': float(time[-1] - time[0]),
-        'pressure_drop_factor': float(peak / base) if base > 0 else 0.0,
+        'pressure_drop_factor': float(peak_torr / base_global_torr) if base_global_torr > 0 else 0.0,
         'stabilization_detected': stabilized,
-        'time_to_stabilize_s': float(stabilized_time - time[0]) if stabilized else None
+        # Absolute (from start) for backward-compatibility with your UI:
+        'time_to_stabilize_s': float(stabilized_time_abs - t0) if stabilized else None,
+        # New: time after peak
+        'time_to_stabilize_from_peak_s': stabilized_time_from_peak if stabilized else None,
+        # References used
+        'baseline_reference_torr': float(baseline_target_torr),
+        'peak_time_s': peak_time,
     }
+
+    # NEW: formatted HH:MM:SS strings
+    result['peak_time_hms'] = format_time(peak_time - t0)
+    if stabilized:
+        result['time_to_stabilize_hms'] = format_time(result['time_to_stabilize_s'])
+        if result.get('time_to_stabilize_from_peak_s') is not None:
+            result['time_to_stabilize_from_peak_hms'] = format_time(result['time_to_stabilize_from_peak_s'])
+    else:
+        result['time_to_stabilize_hms'] = None
+        result['time_to_stabilize_from_peak_hms'] = None
+
     if not stabilized:
         result['stabilization_note'] = 'Pressure did not stabilize within measurement'
     if warning:
         result['pressure_column_warning'] = warning
+
     return result
 
 
+
+
 # ==================== TERMINATION ANALYSIS ====================
+def _infer_pressure_units_from_name(colname: str) -> str:
+    name = colname.lower()
+    if 'torr' in name:
+        return 'Torr'
+    if 'mbar' in name:
+        return 'mbar'
+    if 'pa' in name:
+        return 'Pa'
+    return 'mbar'  # default used across the codebase
+
 
 def analyze_termination(df: pd.DataFrame,
                         pressure_col: Optional[str] = None,
@@ -1055,6 +1255,7 @@ def analyze_termination(df: pd.DataFrame,
                         pressure_units: str = 'mbar') -> Dict[str, Any]:
     """
     H-termination analysis: prefers P_MBE gauge; extends dose metrics and adds mbar fields.
+    Uses robust dose detection relative to peak to avoid ramp/shoulder mis-detection.
     """
     if molecular_weight is None:
         molecular_weight = 2.016  # H2
@@ -1065,21 +1266,34 @@ def analyze_termination(df: pd.DataFrame,
         if chosen_col is None:
             return {'error': 'No suitable pressure column found (expected P_MBE or P_VT)'}
 
-    dose = analyze_dose(df, chosen_col, time_col, molecular_weight, filename, temperature_K, pressure_units)
+    # Infer units from column name if available
+    inferred_units = _infer_pressure_units_from_name(chosen_col)
+
+    dose = analyze_dose(
+        df, chosen_col, time_col, molecular_weight, filename, temperature_K,
+        pressure_units=inferred_units,
+        method='relative_to_peak',  # <-- robust mode for H2 termination
+        entry_frac=0.10,
+        exit_frac=0.05,
+        min_duration_s=60.0
+    )
     dose['pressure_column_used'] = chosen_col
+
+    # Decorate with H-termination-specific fields
     if dose.get('dose_detected'):
         dose['termination_type'] = 'H-termination'
         dose['exposure_time_s'] = dose['dose_duration_s']
         dose['average_pressure_torr'] = dose.get('mean_dose_pressure_torr')
-        dose['h2_exposure_langmuirs'] = dose['exposure_langmuirs']
+
+        # Also provide mbar values for UI titles
         if 'peak_pressure_torr' in dose:
             dose['peak_pressure_mbar'] = float(dose['peak_pressure_torr'] / 0.75006)
         if 'baseline_pressure_torr' in dose:
             dose['baseline_pressure_mbar'] = float(dose['baseline_pressure_torr'] / 0.75006)
         if 'mean_dose_pressure_torr' in dose:
             dose['mean_dose_pressure_mbar'] = float(dose['mean_dose_pressure_torr'] / 0.75006)
-    return dose
 
+    return dose
 
 # ==================== MAIN DISPATCH ====================
 

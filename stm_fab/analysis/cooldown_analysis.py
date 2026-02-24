@@ -39,7 +39,7 @@ def load_calibration_from_json(json_path: str) -> Dict[str, Any]:
     
     # Create temperature estimation function based on model type
     if model == 'R(T)_exponential':
-        # R = a * exp(b * T) + c
+        # R = a * exp(b / T) + c
         # Need to invert to get T(R): T = (1/b) * ln((R - c) / a)
         a = coeffs['a']
         b = coeffs['b']
@@ -49,7 +49,10 @@ def load_calibration_from_json(json_path: str) -> Dict[str, Any]:
             """Calculate temperature (K) from resistance (Ω)"""
             if R <= c:
                 return np.nan
-            return (1.0 / b) * np.log((R - c) / a)
+            log_arg = (R - c) / a
+            if log_arg <= 0:
+                return np.nan
+            return b / np.log(log_arg)
         
         # For current-based estimation, need V/I = R
         def temp_from_VI(V: float, I: float) -> float:
@@ -65,8 +68,17 @@ def load_calibration_from_json(json_path: str) -> Dict[str, Any]:
         # Also provide vectorized versions
         def temp_from_resistance_vec(R: np.ndarray) -> np.ndarray:
             T = np.full_like(R, np.nan, dtype=float)
-            valid = R > c
-            T[valid] = (1.0 / b) * np.log((R[valid] - c) / a)
+            valid_mask = R > c
+            
+            if not np.any(valid_mask):
+                return T
+            
+            log_arg = (R[valid_mask] - c) / a
+            positive_log = log_arg > 0
+            
+            if np.any(positive_log):
+                T[valid_mask][positive_log] = b / np.log(log_arg[positive_log])
+            
             return T
         
         def temp_from_VI_vec(V: np.ndarray, I: np.ndarray) -> np.ndarray:

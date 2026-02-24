@@ -216,9 +216,6 @@ def plot_dose(df: pd.DataFrame,
 
 def plot_outgas(df: pd.DataFrame,
                 time_col: str = 'Time_s') -> List[plt.Figure]:
-    """
-    Plot outgas: pressure vs time (P_MBE preferred), show stabilization if detected.
-    """
     pcol = _find_pressure_column(df, prefer='MBE') or _find_pressure_column(df, prefer='VT')
     if pcol is None:
         raise ValueError("No pressure column found for outgas plotting")
@@ -226,48 +223,88 @@ def plot_outgas(df: pd.DataFrame,
     metrics = analyze_outgas(df, pressure_col=pcol, time_col=time_col)
 
     t = df[time_col].to_numpy(dtype=float)
-    P = df[pcol].to_numpy(dtype=float)
+    Praw = df[pcol].to_numpy(dtype=float)
+
+    # For log plotting, ignore non-positive values
+    P = np.where(Praw > 0, Praw, np.nan)
 
     fig, ax = plt.subplots(figsize=(10, 4))
     ax.plot(t, P, 'k-', lw=1.3, label=pcol)
 
-    # Annotate stabilization
+    # Use log-scale so 1e-9 / 1e-10 are visible
+    ax.set_yscale('log')
+
+    # Peak marker and HH:MM:SS label
+    if 'peak_time_s' in metrics and isinstance(metrics['peak_time_s'], (int, float, np.floating)):
+        t_peak = float(metrics['peak_time_s'])
+        try:
+            idx_peak = int(np.nanargmax(P))
+            y_peak = float(P[idx_peak]) if np.isfinite(P[idx_peak]) else np.nan
+        except Exception:
+            y_peak = np.nan
+        ax.axvline(t_peak, color='crimson', ls='--', lw=1, label='Peak')
+        peak_label_text = metrics.get('peak_time_hms', f"{t_peak:.1f} s")
+        if np.isfinite(y_peak):
+            _annot(ax, f"Peak @ {peak_label_text}", (t_peak, y_peak), color='crimson')
+
+
+    # Stabilization marker, prefer “from peak” HH:MM:SS
     if metrics.get('stabilization_detected'):
-        t_stab = metrics.get('time_to_stabilize_s')
-        if isinstance(t_stab, (int, float)):
-            ax.axvline(t_stab + float(t[0]), color='green', ls='--', lw=1, label='Stabilized')
-            _annot(ax, f"Stabilized @ {t_stab:.1f} s", (t_stab + t[0], float(P[-1])), color='green')
+        t_peak = float(metrics.get('peak_time_s', t[0]))
+
+        from_peak_s = metrics.get('time_to_stabilize_from_peak_s')
+        if isinstance(from_peak_s, (int, float, np.floating)):
+            t_stab_abs = t_peak + float(from_peak_s)
+            default_from_peak = f"{float(from_peak_s):.1f} s"
+            from_peak_hms = metrics.get('time_to_stabilize_from_peak_hms', default_from_peak)
+            label_stab = f"Stabilized {from_peak_hms} after peak"
+        else:
+            abs_s = metrics.get('time_to_stabilize_s')
+            if isinstance(abs_s, (int, float, np.floating)):
+                t_stab_abs = float(abs_s) + float(t[0])
+                default_abs = f"{float(abs_s):.1f} s"
+                abs_hms = metrics.get('time_to_stabilize_hms', default_abs)
+                label_stab = f"Stabilized @ {abs_hms}"
+            else:
+                t_stab_abs, label_stab = None, None
+
+        if t_stab_abs is not None:
+            ax.axvline(t_stab_abs, color='green', ls='--', lw=1, label='Stabilized')
+            # place annotation near median pressure
+            y_ann = np.nanmedian(P) if np.isfinite(np.nanmedian(P)) else (P[-1] if np.isfinite(P[-1]) else 1.0)
+            if label_stab:
+                _annot(ax, label_stab, (t_stab_abs, y_ann), color='green')
+
 
     ax.set_title(f"Outgas: Base {_fmt_eng(metrics.get('base_pressure_mbar'), 'mbar')}, "
                  f"Peak {_fmt_eng(metrics.get('peak_pressure_mbar'), 'mbar')}")
     ax.set_xlabel("Time (s)")
-    ax.set_ylabel(f"{pcol} (raw units)")
-    ax.grid(True, alpha=0.3)
-    ax.legend()
+    ax.set_ylabel(f"{pcol} (log scale, raw units)")
+    ax.grid(True, which='both', alpha=0.3)
+
+    # Deduplicate legend
+    handles, labels = ax.get_legend_handles_labels()
+    uniq = dict(zip(labels, handles))
+    ax.legend(uniq.values(), uniq.keys(), loc='upper right')
 
     return [fig]
 
-
 def plot_termination(df: pd.DataFrame,
                      time_col: str = 'Time_s') -> List[plt.Figure]:
-    """
-    Plot H-termination: P_MBE vs time and shade dose interval as detected.
-    """
-    # Use analyze_termination (prefers P_MBE internally)
     metrics = analyze_termination(df, pressure_col=None, time_col=time_col)
 
-    # pick a pressure column to plot
     pcol = metrics.get('pressure_column_used') or _find_pressure_column(df, prefer='MBE') or _find_pressure_column(df, prefer='VT')
     if pcol is None:
         raise ValueError("No pressure column found for H-termination plotting")
 
     t = df[time_col].to_numpy(dtype=float)
-    P = df[pcol].to_numpy(dtype=float)
+    Praw = df[pcol].to_numpy(dtype=float)
+    P = np.where(Praw > 0, Praw, np.nan)  # guard for log
 
     fig, ax = plt.subplots(figsize=(10, 4))
     ax.plot(t, P, 'b-', lw=1.3, label=pcol)
+    ax.set_yscale('log')  # log scale for wide dynamic range
 
-    # Shade termination period if detected as dose
     if metrics.get('dose_detected'):
         t0 = metrics.get('dose_start_time_s')
         t1 = metrics.get('dose_end_time_s')
@@ -279,8 +316,8 @@ def plot_termination(df: pd.DataFrame,
         ax.set_title("H-Termination: No dose detected")
 
     ax.set_xlabel("Time (s)")
-    ax.set_ylabel(f"{pcol} (raw units)")
-    ax.grid(True, alpha=0.3)
+    ax.set_ylabel(f"{pcol} (log scale, raw units)")
+    ax.grid(True, which='both', alpha=0.3)
     ax.legend()
 
     return [fig]

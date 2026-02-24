@@ -1,18 +1,16 @@
 """
 database_models.py - SQLAlchemy ORM models for STM fabrication system
 
-Based on the Technical Implementation Guide provided in the roadmap
-
 ENHANCED VERSION:
-- Added cascade='all, delete-orphan' to all Sample relationships
-- This ensures proper deletion order when deleting samples
-- Prevents IntegrityError: NOT NULL constraint violations
-
-If upgrading from the original version, you'll need to recreate your database
-or the enhanced database_operations.py will handle deletions explicitly.
+- Sample.sample_name is NOT unique (keep index for search)
+- Device.device_name is globally UNIQUE
+- Cascades remain on Sample relationships
+- ADDED: Batch Manufacturing Record (BMR) tables for compliance
 """
 
-from sqlalchemy import Column, Integer, String, Float, DateTime, Boolean, ForeignKey, JSON, Text
+from sqlalchemy import (
+    Column, Integer, String, Float, DateTime, Boolean, ForeignKey, JSON, Text
+)
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import relationship
 from datetime import datetime
@@ -27,7 +25,8 @@ class Sample(Base):
     __tablename__ = 'samples'
 
     sample_id = Column(Integer, primary_key=True)
-    sample_name = Column(String(100), unique=True, nullable=False, index=True)
+    # NOT unique: allow multiple samples with the same name
+    sample_name = Column(String(100), nullable=False, index=True)
     creation_date = Column(DateTime, default=datetime.utcnow)
     substrate_type = Column(String(50))  # e.g., "Si(100)", "GaAs(100)"
     supplier = Column(String(100))
@@ -35,8 +34,8 @@ class Sample(Base):
     resistivity = Column(Float)  # Ohm-cm
     status = Column(String(20), default='active')  # active, complete, failed
     notes = Column(Text)
-    
-    # NEW: paths linked to the sample
+
+    # Paths linked to the sample
     labview_folder_path = Column(String(500))  # Folder containing LabVIEW .txt files
     scan_folder_path = Column(String(500))     # Folder containing .sxm scans
 
@@ -58,7 +57,10 @@ class Device(Base):
 
     device_id = Column(Integer, primary_key=True)
     sample_id = Column(Integer, ForeignKey('samples.sample_id'), nullable=False)
+
+    # Globally unique device names
     device_name = Column(String(100), unique=True, nullable=False, index=True)
+
     nominal_design_ref = Column(String(200))  # Link to GDS file or design doc
     fabrication_start = Column(DateTime)
     fabrication_end = Column(DateTime)
@@ -66,11 +68,16 @@ class Device(Base):
     overall_status = Column(String(20), default='in_progress')  # in_progress, complete, failed
     operator = Column(String(100))
     notes = Column(Text)
+    
+    # Fabrication report tracking
+    report_path = Column(String(500))  # Path to HTML fabrication record
+    report_generated_date = Column(DateTime)  # When report was created
 
     # Relationships
     sample = relationship('Sample', back_populates='devices')
-    fabrication_steps = relationship('FabricationStep', back_populates='device', 
+    fabrication_steps = relationship('FabricationStep', back_populates='device',
                                     cascade='all, delete-orphan', order_by='FabricationStep.step_number')
+    bmr_records = relationship('BatchManufacturingRecord', back_populates='device', cascade='all, delete-orphan')
 
     def __repr__(self):
         return f"<Device(name='{self.device_name}', status='{self.overall_status}')>"
@@ -79,8 +86,7 @@ class Device(Base):
         """Calculate completion percentage based on completed steps"""
         if not self.fabrication_steps:
             return 0.0
-        completed = sum(1 for step in self.fabrication_steps 
-                       if step.status == 'complete')
+        completed = sum(1 for step in self.fabrication_steps if step.status == 'complete')
         return (completed / len(self.fabrication_steps)) * 100
 
 
@@ -104,8 +110,8 @@ class FabricationStep(Base):
 
     # Relationships
     device = relationship('Device', back_populates='fabrication_steps')
-    stm_scans = relationship('STMScan', back_populates='fabrication_step', 
-                            cascade='all, delete-orphan')
+    stm_scans = relationship('STMScan', back_populates='fabrication_step',
+                             cascade='all, delete-orphan')
     quality_checks = relationship('QualityCheck', back_populates='fabrication_step')
 
     def __repr__(self):
@@ -279,16 +285,10 @@ class CooldownCalibration(Base):
         if not self.fit_coefficients:
             raise ValueError("No calibration data available")
 
-        # Use polynomial to get current from temperature
-        # Need to solve for I given T: T = a0 + a1*I + a2*I^2 + ...
-        # This is an inverse problem - can use root finding or interpolation
-
-        # Simpler approach: use interpolation on original data
         curve_data = self.curve_data_json
         temp_array = np.array(curve_data['temperature'])
         current_array = np.array(curve_data['current'])
 
-        # Interpolate
         current = np.interp(target_temp, temp_array[::-1], current_array[::-1])
         return float(current)
 
@@ -325,31 +325,189 @@ class QualityCheck(Base):
 class ProcessMetrics(Base):
     """
     Detailed process metrics computed from LabVIEW files
-    
-    Stores analysis results like:
-    - Dose: flux, exposure, integrated molecules
-    - Flash: count, durations, peak temperatures
-    - Overgrowth: RT/RTA/LTE phase breakdown
-    - SUSI: operating time, currents
     """
     __tablename__ = 'process_metrics'
-    
+
     metrics_id = Column(Integer, primary_key=True)
     process_step_id = Column(Integer, ForeignKey('process_steps.process_id'), nullable=False)
-    
+
     # File info
     file_path = Column(String(500))
-    file_type = Column(String(50))  # dose, flash, susi, etc.
-    
+    file_type = Column(String(50))
+
     # Complete metrics as JSON
     metrics_json = Column(JSON)
+
+    # Timestamps
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    def __repr__(self):
+        return f"<ProcessMetrics(process_step={self.process_step_id}, type='{self.file_type}')>"
+
+
+# =============================================================================
+# BATCH MANUFACTURING RECORD (BMR) MODELS - NEW
+# =============================================================================
+
+class BatchManufacturingRecord(Base):
+    """
+    Batch Manufacturing Records for device fabrication
+    
+    Provides GMP-compliant documentation of the complete fabrication process
+    including all parameters, quality checks, and signatures.
+    """
+    __tablename__ = 'batch_manufacturing_records'
+    
+    bmr_id = Column(Integer, primary_key=True, autoincrement=True)
+    batch_number = Column(String(50), unique=True, nullable=False, index=True)
+    device_id = Column(Integer, ForeignKey('devices.device_id'), nullable=False)
+    
+    # Metadata
+    operator = Column(String(50))
+    start_date = Column(DateTime)
+    completion_date = Column(DateTime)
+    target_completion = Column(DateTime)
+    
+    # Status tracking
+    status = Column(String(20), default='in_progress')  # in_progress, completed, failed, on_hold
+    
+    # File references
+    json_file_path = Column(String(500))  # Path to JSON backup
+    pdf_file_path = Column(String(500))   # Path to final PDF record
+    
+    # Process type
+    process_type = Column(String(50), default='SET')  # SET, other custom processes
+    
+    # Approval tracking
+    qc_approved = Column(Boolean, default=False)
+    qc_approved_by = Column(String(100))
+    qc_approved_date = Column(DateTime)
+    
+    pi_approved = Column(Boolean, default=False)
+    pi_approved_by = Column(String(100))
+    pi_approved_date = Column(DateTime)
+    
+    # Relationships
+    device = relationship('Device', back_populates='bmr_records')
+    bmr_steps = relationship('BMRStep', back_populates='bmr', 
+                            cascade='all, delete-orphan',
+                            order_by='BMRStep.step_number')
     
     # Timestamps
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     
     def __repr__(self):
-        return f"<ProcessMetrics(process_step={self.process_step_id}, type='{self.file_type}')>"
+        return f"<BMR(batch='{self.batch_number}', status='{self.status}')>"
+    
+    def calculate_completion(self):
+        """Calculate completion percentage based on completed steps"""
+        if not self.bmr_steps:
+            return 0.0
+        completed = sum(1 for step in self.bmr_steps if step.status == 'completed')
+        return (completed / len(self.bmr_steps)) * 100
+
+
+class BMRStep(Base):
+    """
+    Individual steps within a Batch Manufacturing Record
+    
+    Tracks execution details, parameters, quality checks, and verification
+    for each fabrication step.
+    """
+    __tablename__ = 'bmr_steps'
+    
+    bmr_step_id = Column(Integer, primary_key=True, autoincrement=True)
+    bmr_id = Column(Integer, ForeignKey('batch_manufacturing_records.bmr_id'), nullable=False)
+    
+    # Step identification
+    step_number = Column(Integer, nullable=False)
+    step_name = Column(String(200), nullable=False)
+    
+    # Execution tracking
+    status = Column(String(20), default='not_started')  # not_started, in_progress, completed, failed, skipped
+    operator_initials = Column(String(10))
+    start_time = Column(DateTime)
+    end_time = Column(DateTime)
+    
+    # Process data (stored as JSON for flexibility)
+    parameters_json = Column(Text)  # JSON blob of all parameters
+    quality_notes = Column(Text)
+    
+    # Quality checks
+    pre_check_pass = Column(Boolean, default=False)
+    post_check_pass = Column(Boolean, default=False)
+    
+    # Issues tracking (stored as JSON arrays)
+    deviations_json = Column(Text)  # JSON array of deviation descriptions
+    corrective_actions_json = Column(Text)  # JSON array of corrective actions
+    
+    # File references
+    labview_file = Column(String(500))
+    sxm_scans_json = Column(Text)  # JSON array of scan file paths
+    
+    # Verification
+    verified_by = Column(String(50))
+    verified_time = Column(DateTime)
+    
+    # Relationships
+    bmr = relationship('BatchManufacturingRecord', back_populates='bmr_steps')
+    
+    # Timestamps
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    
+    def __repr__(self):
+        return f"<BMRStep(bmr={self.bmr_id}, step={self.step_number}, status='{self.status}')>"
+    
+    def get_parameters(self):
+        """Parse parameters from JSON string"""
+        import json
+        if self.parameters_json:
+            return json.loads(self.parameters_json)
+        return {}
+    
+    def set_parameters(self, params_dict):
+        """Store parameters as JSON string"""
+        import json
+        self.parameters_json = json.dumps(params_dict)
+    
+    def get_deviations(self):
+        """Parse deviations from JSON string"""
+        import json
+        if self.deviations_json:
+            return json.loads(self.deviations_json)
+        return []
+    
+    def set_deviations(self, deviations_list):
+        """Store deviations as JSON string"""
+        import json
+        self.deviations_json = json.dumps(deviations_list)
+    
+    def get_corrective_actions(self):
+        """Parse corrective actions from JSON string"""
+        import json
+        if self.corrective_actions_json:
+            return json.loads(self.corrective_actions_json)
+        return []
+    
+    def set_corrective_actions(self, actions_list):
+        """Store corrective actions as JSON string"""
+        import json
+        self.corrective_actions_json = json.dumps(actions_list)
+    
+    def get_sxm_scans(self):
+        """Parse SXM scan paths from JSON string"""
+        import json
+        if self.sxm_scans_json:
+            return json.loads(self.sxm_scans_json)
+        return []
+    
+    def set_sxm_scans(self, scan_paths_list):
+        """Store SXM scan paths as JSON string"""
+        import json
+        self.sxm_scans_json = json.dumps(scan_paths_list)
 
 
 # Database initialization
@@ -363,23 +521,3 @@ def init_database(db_url='sqlite:///stm_fab_records.db'):
 
     Session = sessionmaker(bind=engine)
     return Session()
-
-
-# Example usage
-if __name__ == '__main__':
-    # Create database
-    session = init_database()
-
-    # Create a sample
-    sample = Sample(
-        sample_name='Si_2025_Q4_001',
-        substrate_type='Si(100)',
-        supplier='UniversityWafer',
-        doping_level=1e15,
-        resistivity=10.0,
-        notes='High-quality substrate for quantum dot fabrication'
-    )
-    session.add(sample)
-    session.commit()
-
-    print(f"Created: {sample}")
