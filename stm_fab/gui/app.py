@@ -339,7 +339,7 @@ class STMFabGUIEnhanced(DeviceManagementMixin):
             scroll_frame,
             text="Sample-centric organization with database persistence",
             font=ctk.CTkFont(size=14),
-            text_color="gray"
+            text_color=("#6B7280", "#9CA3AF")
         ).pack(pady=(0, 30))
 
         # Sample Configuration
@@ -373,7 +373,7 @@ class STMFabGUIEnhanced(DeviceManagementMixin):
             sample_container,
             text="Enter a unique identifier for your sample",
             font=ctk.CTkFont(size=11),
-            text_color="gray"
+            text_color=("#6B7280", "#9CA3AF")
         ).pack(anchor="w")
 
         # Device Configuration
@@ -407,7 +407,7 @@ class STMFabGUIEnhanced(DeviceManagementMixin):
             device_container,
             text="Enter a unique identifier for your device",
             font=ctk.CTkFont(size=11),
-            text_color="gray"
+            text_color=("#6B7280", "#9CA3AF")
         ).pack(anchor="w")
 
         # LabVIEW Files (setup area)
@@ -451,8 +451,8 @@ class STMFabGUIEnhanced(DeviceManagementMixin):
             command=self.import_and_show_labview_process,
             width=140,
             height=40,
-            fg_color="orange",
-            hover_color="darkorange"
+            fg_color=("#7A5B2E", "#7A5B2E"),
+            hover_color=("#624822", "#624822")
         ).pack(side="right", padx=(0, 5))
 
         # Scan Folder
@@ -494,8 +494,8 @@ class STMFabGUIEnhanced(DeviceManagementMixin):
             command=self.initialize_device,
             height=50,
             font=ctk.CTkFont(size=16, weight="bold"),
-            fg_color="green",
-            hover_color="darkgreen"
+            fg_color=("#2F6F56", "#2F6F56"),
+            hover_color=("#275746", "#275746")
         )
         self.init_button.pack(pady=10)
 
@@ -589,7 +589,7 @@ class STMFabGUIEnhanced(DeviceManagementMixin):
             frame,
             text="",
             font=ctk.CTkFont(size=12),
-            text_color="orange"
+            text_color=("#7A5B2E", "#7A5B2E")
         )
         self.thermal_warning.pack(pady=5)
 
@@ -677,13 +677,13 @@ class STMFabGUIEnhanced(DeviceManagementMixin):
             status = 'normal'
 
         if status == 'normal':
-            color = "green"
+            color = ("#2F6F56", "#2F6F56")
             warning_text = ""
         elif status == 'warning':
-            color = "orange"
+            color = ("#7A5B2E", "#7A5B2E")
             warning_text = "⚠️ Approaching thermal budget limit"
         else:  # critical
-            color = "red"
+            color = ("#A94444", "#A94444")
             warning_text = "🚨 CRITICAL: Thermal budget exceeded!"
 
         # Update labels
@@ -792,7 +792,7 @@ class STMFabGUIEnhanced(DeviceManagementMixin):
                 contrib_frame,
                 text="No contributions recorded for this sample yet.",
                 font=ctk.CTkFont(size=12),
-                text_color="gray"
+                text_color=("#6B7280", "#9CA3AF")
             ).pack(pady=10)
         else:
             for process_name, contribution, key in contributions:
@@ -891,7 +891,7 @@ class STMFabGUIEnhanced(DeviceManagementMixin):
                 header_frame,
                 text=check.description,
                 font=ctk.CTkFont(size=10),
-                text_color="gray"
+                text_color=("#6B7280", "#9CA3AF")
             ).pack(anchor="w", pady=2)
 
             # Pass/Fail selection
@@ -993,8 +993,8 @@ class STMFabGUIEnhanced(DeviceManagementMixin):
             command=save_checks,
             width=130,
             height=35,
-            fg_color="green",
-            hover_color="darkgreen"
+            fg_color=("#2F6F56", "#2F6F56"),
+            hover_color=("#275746", "#275746")
         ).pack(side="left", padx=5)
 
         ctk.CTkButton(
@@ -1237,8 +1237,8 @@ class STMFabGUIEnhanced(DeviceManagementMixin):
             command=link_to_sample,
             width=180,
             height=35,
-            fg_color="green",
-            hover_color="darkgreen"
+            fg_color=("#2F6F56", "#2F6F56"),
+            hover_color=("#275746", "#275746")
         ).pack(side="left", padx=5)
 
         ctk.CTkButton(
@@ -1303,8 +1303,8 @@ class STMFabGUIEnhanced(DeviceManagementMixin):
                 command=lambda s=step: self.show_quality_check_dialog(0, s['name']),
                 width=120,
                 height=28,
-                fg_color="orange",
-                hover_color="darkorange"
+                fg_color=("#7A5B2E", "#7A5B2E"),
+                hover_color=("#624822", "#624822")
             ).pack(side="left", padx=2)
 
     def _add_scan_button_text(self, step_num: int) -> str:
